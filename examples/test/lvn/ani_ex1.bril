@@ -1,0 +1,8 @@
+@main {
+  x: int = const 5;
+  y: int = const 10;
+  z: int = add x y;
+  res1: int = add x y;
+  res2: int = mul z res1;
+  ret res2;
+}
