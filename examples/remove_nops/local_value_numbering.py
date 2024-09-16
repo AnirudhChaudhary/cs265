@@ -45,11 +45,16 @@ def generate_value(instr, table):
         consolidated_args = []
         for arg in instr["args"]:       # go through all arguments in new instr
             # print("arg: ", arg)
-            for num in table:           # go through all existing to see if there are overlaps
+            max_num = max(table.keys())
+            for num in range(max_num, 0, -1):           # go through all existing to see if there are overlaps
+                # print(num)
                 var_list = table[num][1]
                 if arg in var_list:
                     consolidated_args.append(num)
+                    break
 
+
+        # print("generating value with op: ", (instr["op"], consolidated_args))
         return Value(op=instr["op"], args=consolidated_args)
     else:
         return None
@@ -119,30 +124,47 @@ def table_to_prog(table):
 
     return instruction_list
 
+def preprocessing(prog):
+    instructions  = prog["functions"][0]["instrs"]
+    for inst in instructions:
+        if "dest" in inst and inst["dest"] == "cond":
+            return True
+        if "label" in inst:
+            return True
+        if "labels" in inst:
+            return True
     
 if __name__ == "__main__":
     # the program comes in from stdin
     prog = json.load(sys.stdin)
     # print(prog)
-    final_instr = prog["functions"][0]["instrs"][-1]    # very adhoc way of dealing with the final instr, bc curr infra is not able to handle those bc they don't have destinations associated with them
-
-    return_table = local_value_numbering(prog)
-    """
-    table after:  {1: (const(4), ['a']), 2: (const(2), ['b']), 3: (const(2), ['c']), 4: (add(1,2), ['sum1', 'sum2']), 5: (add(1,3), ['sum3']), 6: (mul(4,4), ['prod']), 7: (mul(4,5), ['prod'])}
-    """
-    final_instr_list = table_to_prog(return_table)
-    final_instr_list.append(final_instr)
-    return_prog = {
-        "functions": [
-            {
-                "instrs": final_instr_list,
-                "name" : "main"
-            }
-        ],
+    # in this version of lvn, we run away from conditionals and branching
+    early_terminate = preprocessing(prog)
+    if not early_terminate:
         
-    }
+        final_instr = prog["functions"][0]["instrs"][-1]    # very adhoc way of dealing with the final instr, bc curr infra is not able to handle those bc they don't have destinations associated with them
+        # TODO: Do a local dead code elimination pass before local value numbering
+        return_table = local_value_numbering(prog)
+        """
+        table after:  {1: (const(4), ['a']), 2: (const(2), ['b']), 3: (const(2), ['c']), 4: (add(1,2), ['sum1', 'sum2']), 5: (add(1,3), ['sum3']), 6: (mul(4,4), ['prod']), 7: (mul(4,5), ['prod'])}
+        """
+        # print("---------- RETURNED TABLE -------------")
+        # print(return_table)
+        final_instr_list = table_to_prog(return_table)
 
-    # print(return_prog)
+        final_instr_list.append(final_instr)
+        return_prog = {
+            "functions": [
+                {
+                    "instrs": final_instr_list,
+                    "name" : "main"
+                }
+            ],
+            
+        }
+    else:
+        return_prog = prog
+        # print(return_prog)
         
     
     json.dump(return_prog, sys.stdout, indent=2)
