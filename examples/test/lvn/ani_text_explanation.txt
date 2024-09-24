@@ -1,6 +1,0 @@
-ani_ex_complex.bril - complex case
-ani_ex_multi.bril - might require multiple passes of lvn
-ani_ex_OOO.bril - tests commutative extension property by switching up arguments 
-ani_ex1.bril - simple case
-ani_same_const_test.bril - tests to make sure that variables with the same constant value aren't overwritten
-    - for example, b = const(9) and c = const(9), are separate instructions, but could be clubbed because they have the same op and args
