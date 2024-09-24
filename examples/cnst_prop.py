@@ -28,16 +28,16 @@ def create_blocks(prog):
     block_list = {}
     # go through all instructions
     for instr in list_of_instr:
-        print("instr: ", instr)
+        # print("instr: ", instr)
         # some instr have operations, while others like label instr just have `label` defined
         if "label" in instr:
-            print("current block is: ", curr_block)
+            # print("current block is: ", curr_block)
 
             ret_block = block_list[instr["label"]]
-            print("returned block is: ", ret_block)
+            # print("returned block is: ", ret_block)
             
             curr_block = ret_block
-            print("new block is: ", curr_block)
+            # print("new block is: ", curr_block)
                     
         if "op" in instr:
             if instr["op"] in terminator_list:
@@ -71,12 +71,12 @@ class Block():
         self.instruction_list.append(instr)
     
     def add_child_blocks(self, label_list):
-        print("adding child blocks")
-        print("label list: ", label_list)
+        # print("adding child blocks")
+        # print("label list: ", label_list)
         for label in label_list:
             self.children_list.append(Block(name=label, input_table=[], instruction_list=[], children_list=[], output_table= {}))
         
-        print("self.children_list: ", self.children_list)
+        # print("self.children_list: ", self.children_list)
         return self.children_list
     
     def __repr__(self):
@@ -128,6 +128,8 @@ def generate_value(instr, table):
     Output: str?
     """
     arith_ops = ["add", "sub", "mul", "div"]
+    if "label" in instr:
+        return Value(op="label", args=[instr["label"]])
     if instr["op"] == "const":
         return Value(op="const", args=[instr["value"]])
     if instr["op"] == "id":
@@ -162,7 +164,7 @@ def pull_constant(val, table):
     """
     print(f"should be pulling {val} from {table}")
 
-    for instr_num in table:
+    for instr_num in table: 
         dest_var = table[instr_num][1]       # the destination variable is stored in a list in the second index
         if val.args == dest_var:
             print("found it! returning: ", table[instr_num][0])
@@ -178,6 +180,8 @@ def convert_to_instr(instr_value, table):
     match val_obj.op:
         case "const":
             return {'dest': dest, 'op': val_obj.op, 'type': 'int', 'value': val_obj.args[0]}
+        case "label":
+            return {"label": val_obj.args[0]}
         case _:
             final_simplified = []
             for arg_val in val_obj.args:
@@ -189,6 +193,7 @@ def table_to_prog(table):
     """
     Converts the table to program format by going through all the keys in our tables, which should, by definition, by unique instructions.
     """
+    print("table: ", table)
     i = 1
     instruction_list = []
     while i in table.keys():
@@ -197,7 +202,7 @@ def table_to_prog(table):
         i += 1
 
     return instruction_list
-def const_prop(prog, starting_table):
+def const_prop(instruction_list, starting_table):
     """
     Local value numbering pass through the program.
     DESIGN CHOICE: ONE PASS OR TWO PASS: If you go in one pass, you keep checking backwards to see what value it takes on.
@@ -206,19 +211,21 @@ def const_prop(prog, starting_table):
     # TODO: handle case where variables are used before declaration
     # table will store values with key = Num, val = (Value, Var)
     table = starting_table
-    for fn in prog["functions"]:
-        i = 1
-        for instr in fn["instrs"]:
-            value = generate_value(instr, table)
-            if value:           # if we have generated a value, then we should add it to the table
-                if value.op == "id":
-                    pulled_constant = pull_constant(value, table)# if the value has an id to it, check if it's in the dictionary alr
-                    if pulled_constant is not None:
-                        table[i] = (pulled_constant, [instr["dest"]])
-                else:
-                    table[i] = (value,[instr["dest"]])
-                i += 1
-            # print("table after: ", table)
+    i = 1
+    for instr in instruction_list:
+        print(instr)
+        value = generate_value(instr, table)
+        if value:           # if we have generated a value, then we should add it to the table
+            if value.op == "id":
+                pulled_constant = pull_constant(value, table)# if the value has an id to it, check if it's in the dictionary alr
+                if pulled_constant is not None:
+                    table[i] = (pulled_constant, [instr["dest"]])
+            elif value.op == "label":
+                table[i] = (value, [""])
+            else:
+                table[i] = (value,[instr["dest"]])
+            i += 1
+        # print("table after: ", table)
 
     return table_to_prog(table), table
 
@@ -226,10 +233,14 @@ def consolidate_input_tables(input_table_list):
     print("consolidating input lists: ", input_table_list)
     return {}
 def const_prop_on_blocks(starting_block_name, block_dict):
+    print("starting const prop on block: ", starting_block_name)
     init_block = block_dict[starting_block_name]         # we always start with the main block
-    if len(init_block.input_table) > 1:
+    if len(init_block.input_table) == 0:
+        init_block.input_table = [{}]
+    elif len(init_block.input_table) > 1:
         init_block.input_table = consolidate_input_tables(init_block.input_table)
-    init_block.instruction_list, init_block.output_table = const_prop(init_block.instruction_list, init_block.input_table)
+
+    init_block.instruction_list, init_block.output_table = const_prop(init_block.instruction_list, init_block.input_table[0])
     final_list = []
     for child_block in init_block.children_list:
         child_block.input_table.append(init_block.output_table)
@@ -242,11 +253,11 @@ if __name__ == "__main__":
     prog = json.load(sys.stdin)
     # print("init program: ", prog)
     
-    # block_dict = create_blocks(prog)
-    # return_prog = const_prop_on_blocks("main", block_dict)
+    block_dict = create_blocks(prog)
+    return_prog = const_prop_on_blocks("main", block_dict)
     # print("")
-    return_prog = const_prop(prog, {})
-    print(return_prog)
-    # for key in return_prog:
-        # print(return_prog[key].instruction_list)
+    # return_prog = const_prop(prog, {})
+    # print(return_prog)
+    for key in return_prog:
+        print(return_prog[key].instruction_list)
     # json.dump(return_prog, sys.stdout, indent=2)
