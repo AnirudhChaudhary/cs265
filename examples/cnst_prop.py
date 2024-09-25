@@ -101,8 +101,8 @@ def const_prop(instruction_list, starting_table):
     DESIGN CHOICE: ONE PASS OR TWO PASS: If you go in one pass, you keep checking backwards to see what value it takes on.
     If you do in two pass, your first pass just dumbly goes through adding values and the second pass will be in charge of propagating the values
     """
-    print("instruction_list: ", instruction_list)
-    print("starting table: ", starting_table)
+    # print("instruction_list: ", instruction_list)
+    # print("starting table: ", starting_table)
     table = starting_table
     new_instruction_list = []
     for instr in instruction_list:
@@ -194,7 +194,8 @@ def consolidate_input_tables(input_table_list):
 
     if len(all_unique_dicts) == 0:
         all_unique_dicts.append({})
-    print("consolidated output: ", all_unique_dicts)
+
+    all_unique_dicts = [{instr["dest"]: instr} for instr in all_unique_dicts]
     return all_unique_dicts
 
 # print(consolidate_input_tables([{'a': {'dest': 'a', 'op': 'const', 'type': 'int', 'value': 2}, 'b': {'dest': 'b', 'op': 'const', 'type': 'int', 'value': 1}, 'c': {'dest': 'c', 'op': 'const', 'type': 'int', 'value': 5}}, {'a': {'dest': 'a', 'op': 'const', 'type': 'int', 'value': 2}, 'b': {'dest': 'b', 'op': 'const', 'type': 'int', 'value': 1}, 'c': {'dest': 'c', 'op': 'const', 'type': 'int', 'value': 10}}]))
@@ -212,8 +213,8 @@ def const_prop_on_blocks(starting_block_name, block_dict):
         init_block = block_dict[block_name]         # we always start with the main block
         # if len(init_block.children_list) == 0 and len(queue) != 0:   #heuristic for determining that we have reached the end block
         #     continue
-        print("looking at block: ", init_block.name)
-        print(f"{init_block.name} is given: ", init_block.input_table)
+        # print("looking at block: ", init_block.name)
+        # print(f"{init_block.name} is given: ", init_block.input_table)
         
         # in the case there were multiple parents, need to consolidate into one
         if len(init_block.input_table) == 0:
@@ -270,4 +271,4 @@ if __name__ == "__main__":
         
     }
     # TODO: DOES LIVENESS program need to take into consideration the boolean values for the conditions?
-    # json.dump(return_prog, sys.stdout, indent=2)
+    json.dump(return_prog, sys.stdout, indent=2)
