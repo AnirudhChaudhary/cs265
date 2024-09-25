@@ -1,14 +1,19 @@
 @main {
   a: int = const 47;
   b: int = const 42;
+  cond: bool = lt a b;
   br cond .left .right;
 .left:
-  b: int = const 1;
-  c: int = const 5;
-  jmp .end;
+  continue: bool = lt a b;
+  br continue .test .best;
 .right:
-  b: int = const 2;
   c: int = const 10;
+  jmp .end;
+.best:
+  a: int = const 2;
+  jmp .end;
+.test:
+  z: int = id a;
   jmp .end;
 .end:
   d: int = sub a c;

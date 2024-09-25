@@ -11,6 +11,6 @@
   c: int = const 10;
   jmp .end;
 .end:
-  d: int = sub a c;
+  d: int = id a;
   print d;
 }
