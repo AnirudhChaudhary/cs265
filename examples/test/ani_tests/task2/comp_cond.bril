@@ -1,0 +1,25 @@
+@main {
+  a: int = const 47;
+  b: int = const 42;
+  cond: bool = lt a b;
+  br cond .left .right;
+.left:
+  continue: bool = lt a b;
+  br continue .test .best;
+.right:
+  c: int = const 10;
+  jmp .end;
+.best:
+  a: int = const 2;
+  c: int = const 10;
+  jmp .end;
+.test:
+  z: int = id b;
+  c: int = const 10;
+  jmp .end;
+.end:
+  d: int = id a;
+  e: int = id b;
+  f: int = id c;
+  print d;
+}

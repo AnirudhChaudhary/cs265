@@ -161,42 +161,75 @@ def var_consistency(var_dict, all_unique_dicts):
     return True
 
 def consolidate_input_tables(input_table_list):
+    """
+    We want to consolidate all of the value tables that we receive from our predecessors. As such, if theres a value defined in one table, it should only be added to the final list if it's in all of the input tables.
+    {'a': {'dest': 'a', 'op': 'const', 'type': 'int', 'value': 2}
+    """
     # print("consolidating input table: ", len(input_table_list))
-    all_unique_dicts = []
+    # print(input_table_list)
+    all_unique_dicts = {}
+    #checked_var = []    # optimization to make sure that we aren't double checking that we know isn't making it
+    # we can only meet at max on the assignment_dict with the least number of items, they all can't agree on more than the min, bc the min doesn't have more 
+    smallest_dict_len = float('inf')
+    smallest_dict = None
     for assignment_dict in input_table_list:
-        # print("assignment dict: ", assignment_dict)
-        
-        for var in assignment_dict:
-            # print("looking at var: ", var)
-            if len(all_unique_dicts) == 0:            # if no added, trivially add the first one
-                first_dict = assignment_dict[list(assignment_dict.keys())[0]]
-                all_unique_dicts.append(first_dict)
-                # print("saw no unique dicts so added one: ", all_unique_dicts)
-                continue
-            # print("var_dict: ", var)
-            var_value = assignment_dict[var]
-            var_in_list = False
-            for dict in all_unique_dicts:
-                if dict["dest"] == var:
-                    var_in_list = True
+        if len(assignment_dict) < smallest_dict_len:
+            smallest_dict_len = len(assignment_dict)
+            smallest_dict = assignment_dict
+    
+    
+    for var in smallest_dict:   # go through the smallest assignment
+        # print(var)
+        # print(smallest_dict[var])
+        var_name = var
+        var_val = smallest_dict[var]["value"]
+        add = True
+        for assignment_dict in input_table_list:    # go through and find out if that assignment is in every dict
+            if var_name in assignment_dict:
+                if assignment_dict[var_name]["value"] != var_val:
+                    add = False
                     break
-
-            if var_in_list:
-                if var_consistency(var_value, all_unique_dicts):
-                    continue
-                else:
-                    # remove var from all_unique_dicts
-                    for dict in all_unique_dicts:
-                        if var == dict["dest"]:
-                            all_unique_dicts.remove(dict)
             else:
-                all_unique_dicts.append(var_value)
+                add = False
+                break
+        if add:
+            all_unique_dicts[var] = smallest_dict[var]
+
+    # for assignment_dict in input_table_list:
+    #     # print("assignment dict: ", assignment_dict)
+        
+    #     for var in assignment_dict:
+    #         # print("looking at var: ", var)
+    #         if len(all_unique_dicts) == 0:            # if no added, trivially add the first one
+    #             first_dict = assignment_dict[list(assignment_dict.keys())[0]]
+    #             all_unique_dicts.append(first_dict)
+    #             # print("saw no unique dicts so added one: ", all_unique_dicts)
+    #             continue
+    #         # print("var_dict: ", var)
+    #         var_value = assignment_dict[var]
+    #         var_in_list = False
+    #         for dict in all_unique_dicts:
+    #             if dict["dest"] == var:
+    #                 var_in_list = True
+    #                 break
+
+    #         if var_in_list:
+    #             if var_consistency(var_value, all_unique_dicts):
+    #                 continue
+    #             else:
+    #                 # remove var from all_unique_dicts
+    #                 for dict in all_unique_dicts:
+    #                     if var == dict["dest"]:
+    #                         all_unique_dicts.remove(dict)
+    #         else:
+    #             all_unique_dicts.append(var_value)
 
     if len(all_unique_dicts) == 0:
-        all_unique_dicts.append({})
+        return [{}]
 
-    all_unique_dicts = [{instr["dest"]: instr} for instr in all_unique_dicts]
-    return all_unique_dicts
+    # print("all unique dict: ", all_unique_dicts)
+    # all_unique_dicts = [{instr["dest"]: instr} for instr in all_unique_dicts]
+    return [all_unique_dicts]
 
 # print(consolidate_input_tables([{'a': {'dest': 'a', 'op': 'const', 'type': 'int', 'value': 2}, 'b': {'dest': 'b', 'op': 'const', 'type': 'int', 'value': 1}, 'c': {'dest': 'c', 'op': 'const', 'type': 'int', 'value': 5}}, {'a': {'dest': 'a', 'op': 'const', 'type': 'int', 'value': 2}, 'b': {'dest': 'b', 'op': 'const', 'type': 'int', 'value': 1}, 'c': {'dest': 'c', 'op': 'const', 'type': 'int', 'value': 10}}]))
 def const_prop_on_blocks(starting_block_name, block_dict):
@@ -207,12 +240,13 @@ def const_prop_on_blocks(starting_block_name, block_dict):
         # print("starting const prop on block: ", starting_block_name)
         # print("queue: ", queue)
         block_name = queue.pop(0)
-        if block_name in visited:
-            continue
+        # if block_name in visited:
+        #     continue
         visited.append(block_name)
         init_block = block_dict[block_name]         # we always start with the main block
-        # if len(init_block.children_list) == 0 and len(queue) != 0:   #heuristic for determining that we have reached the end block
-        #     continue
+        if len(init_block.children_list) == 0 and len(queue) != 0:   #heuristic for determining that we have reached the end block
+            continue
+        
         # print("looking at block: ", init_block.name)
         # print(f"{init_block.name} is given: ", init_block.input_table)
         
@@ -220,8 +254,9 @@ def const_prop_on_blocks(starting_block_name, block_dict):
         if len(init_block.input_table) == 0:
             init_block.input_table = [{}]
         elif len(init_block.input_table) > 1:
-            init_block.input_table = consolidate_input_tables(init_block.input_table)
+            init_block.input_table = consolidate_input_tables(init_block.input_table).copy()
         
+        # print("consolidated input: ", init_block.input_table)
         # perform constant prop
         init_block.instruction_list, init_block.output_table = const_prop(init_block.instruction_list, init_block.input_table[0])
         # print(f"after const prop: {init_block.name} gives: ", init_block.output_table)
@@ -256,9 +291,15 @@ if __name__ == "__main__":
     # print(return_prog)
     # print("return_prog: ", return_prog)
     instruction_list = []
+    seen_blocks = []
+    block_ordering.reverse()       # we want to go backwards through the visited
+    # remove duplicates
     while block_ordering:
         visited_block = block_ordering.pop(0)
-        instruction_list.extend(block_dict[visited_block].instruction_list)
+        if visited_block not in seen_blocks:
+            seen_blocks.append(visited_block)
+
+            instruction_list = block_dict[visited_block].instruction_list + instruction_list
     
     # print("final instruction list: ", instruction_list)
     return_prog = {
