@@ -46,7 +46,7 @@ def plot_results():
     return missing_rows
 
 def run_individual_plots(inputs):
-    files = ["remove_nops.py", "local_dce.py", "trivial_global_optim.py", "local_value_numbering.py"]
+    files = ["remove_nops.py", "cnst_prop.py"]
     benchmark_dir = '../../benchmarks/ani_benchmarks/task1/'
     for file_name in inputs:
         final_command =  f'cat {benchmark_dir + file_name}.bril | bril2json | brili -p '
@@ -94,9 +94,9 @@ if __name__ == "__main__":
     run_brench_command()
     
     # Plot the results
-    # missing_rows = plot_results()
+    missing_rows = plot_results()
 
-    # run_individual_plots(missing_rows)
+    run_individual_plots(missing_rows)
 
     # plot_missing()
     print("hello printing in main. Commands in this function can be run separately")

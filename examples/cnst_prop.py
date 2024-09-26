@@ -105,6 +105,7 @@ def const_prop(instruction_list, starting_table):
     # print("starting table: ", starting_table)
     table = starting_table
     new_instruction_list = []
+    arith_ops = ["add", "sub", "mul", "div"]
     for instr in instruction_list:
         # if the instruction is a constant, add it to the table, overriding if it was already in the table
         # print("looking at instruction: ", instr)
@@ -124,7 +125,27 @@ def const_prop(instruction_list, starting_table):
 
                 else:
                     new_instruction_list.append(instr)  # if the var is not in the table, we can't necessarily do propagation, but this is still a valid program
+            elif instr["op"] in arith_ops:
+                arg_0_name = instr["args"][0]
+                arg_1_name = instr["args"][1]
+                if arg_0_name not in table or arg_1_name not in table:      # if there is a use for a term that hasn't been defined in the scope of this block, then we just ignore it and let it go on
+                    new_instruction_list.append(instr)
+                    continue
+                arg_0_val = table[arg_0_name]["value"]
+                arg_1_val = table[arg_1_name]["value"]
+                match instr["op"]:
+                    case "add":
+                        new_instr = {"dest": instr["dest"], "op": "const", "type":instr["type"], "value":arg_0_val+arg_1_val}
+                    case "sub":
+                        new_instr = {"dest": instr["dest"], "op": "const", "type":instr["type"], "value":arg_0_val-arg_1_val}
+                    case "mul":
+                        new_instr = {"dest": instr["dest"], "op": "const", "type":instr["type"], "value":arg_0_val*arg_1_val}
+                    case "div":
+                        new_instr = {"dest": instr["dest"], "op": "const", "type":instr["type"], "value":arg_0_val//arg_1_val}
 
+                table[instr["dest"]] = new_instr
+                new_instruction_list.append(new_instr)
+                    
             else:
                 new_instruction_list.append(instr)
         
@@ -194,35 +215,6 @@ def consolidate_input_tables(input_table_list):
                 break
         if add:
             all_unique_dicts[var] = smallest_dict[var]
-
-    # for assignment_dict in input_table_list:
-    #     # print("assignment dict: ", assignment_dict)
-        
-    #     for var in assignment_dict:
-    #         # print("looking at var: ", var)
-    #         if len(all_unique_dicts) == 0:            # if no added, trivially add the first one
-    #             first_dict = assignment_dict[list(assignment_dict.keys())[0]]
-    #             all_unique_dicts.append(first_dict)
-    #             # print("saw no unique dicts so added one: ", all_unique_dicts)
-    #             continue
-    #         # print("var_dict: ", var)
-    #         var_value = assignment_dict[var]
-    #         var_in_list = False
-    #         for dict in all_unique_dicts:
-    #             if dict["dest"] == var:
-    #                 var_in_list = True
-    #                 break
-
-    #         if var_in_list:
-    #             if var_consistency(var_value, all_unique_dicts):
-    #                 continue
-    #             else:
-    #                 # remove var from all_unique_dicts
-    #                 for dict in all_unique_dicts:
-    #                     if var == dict["dest"]:
-    #                         all_unique_dicts.remove(dict)
-    #         else:
-    #             all_unique_dicts.append(var_value)
 
     if len(all_unique_dicts) == 0:
         return [{}]

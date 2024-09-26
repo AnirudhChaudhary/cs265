@@ -9,3 +9,9 @@ pipeline = [
   "python3 cnst_prop.py",
   "brili -p {args}",
 ]
+
+[runs.baseline]
+pipeline = [
+  "bril2json",
+  "brili -p {args}",
+]

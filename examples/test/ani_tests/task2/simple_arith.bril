@@ -1,0 +1,37 @@
+@main {
+  a: int = const 3;
+  b: int = const 4;
+  z: int = const 5;
+  cond: bool = lt a b;
+  br cond .first .second;
+.first:
+  b: int = add b b;
+  c: int = add a b;
+  d: int = id c;
+  cond: bool = lt a b;
+  br cond .third .fourth;
+.third:
+  e: int = id a;
+  f: int = id e;
+  g: int = add a b;
+  c: int = const 5;
+  jmp .fifth;
+.fourth:
+  e: int = id b;
+  f: int = id e;
+  c: int = const 5;
+  jmp .fifth;
+.fifth:
+  g: int = sub c a;
+  h: int = id c;
+  jmp .end;
+.second:
+  a: int = add a b;
+  jmp .end;
+.end:
+  a: int = id b;
+  c: int = id d;
+  e: int = mul f g;
+  f: int = mul z z;
+
+}
