@@ -1,5 +1,6 @@
 import json
 import sys
+import copy
 """
 Constant Propagation for Task 2
 
@@ -13,76 +14,121 @@ Approach:
 - Start off with an empty list because we don't have any values defined
 1. Start off with basic constant 
 """
+def print_block_dict(block_dict):
+    for key in block_dict:
+        print(key)
+        print(block_dict[key].instruction_list)
 
-def create_blocks(prog):
+def create_blocks(instr_list, start_name):
     """
     Takes in a program and returns a list of blocks of instructions.
     Input: Dict - program
     Output: List[Dict] - list of blocks, with each block containing the instructions for that block
     """
     # print("prog: ", prog)
-    list_of_instr = prog["functions"][0]["instrs"]
+    # list_of_instr = prog["functions"][0]["instrs"]
+    list_of_instr = instr_list
     terminator_list = ["br", "jmp", "ret"]
-    
-    curr_block = Block(name="main")
+    hit_terminator = False
+    curr_block = Block(name=start_name)
     block_list = {}
     # go through all instructions
     for instr in list_of_instr:
-        # print("instr: ", instr)
         # some instr have operations, while others like label instr just have `label` defined
         if "label" in instr:
-            # print("current block is: ", curr_block)
-
-            ret_block = block_list[instr["label"]]
-            # print("returned block is: ", ret_block)
-            
-            curr_block = ret_block
-            # print("new block is: ", curr_block)
-                    
+            block_list[curr_block.name] = curr_block
+            if instr["label"] in block_list:
+                ret_block = block_list[instr["label"]]      # pull this new block from the list
+                if hit_terminator:
+                    # print("returned block is: ", ret_block)
+                    curr_block = copy.deepcopy(ret_block)
+                else:
+                    curr_block.children_list.append(ret_block)
+                    ret_block.parent_list.append(curr_block)    # the new block's parent is the current block
+                    # print("new block is: ", curr_block)
+                    # continue
+                curr_block = copy.deepcopy(ret_block)
+            else:
+                # we haven't seen this label before
+                new_block_obj = Block(name=instr["label"])                        # create a new block object
+                block_list[curr_block.name].children_list.append(new_block_obj) # add this new label as a child of the block we were working on
+                new_block_obj.parent_list.append(block_list[curr_block.name])
+                block_list[new_block_obj.name] = new_block_obj                  # need to add the new block to our block dict
+                curr_block = new_block_obj                                      # need to change our current to be the new block
+            hit_terminator = False
         if "op" in instr:
             if instr["op"] in terminator_list:
                 # print("seen a terminator: ", instr)
+                hit_terminator = True
                 # terminator instr is counted, but next instr is not guaranteed
-                curr_block.add_instr(instr)
-                if instr["op"] == "ret":
-                    break
-                child_list_as_blocks = curr_block.add_child_blocks(instr["labels"])
-                for block in child_list_as_blocks:
-                    block_list[block.name] = block      # this needs to be saved because its a reference that is tricky to deal with
+                curr_block.instruction_list.append(copy.deepcopy(instr))
+                if instr["op"] == "ret":    # ret doesn't always mean the end of the instr, so we just end this block and keep going
+                    block_list[curr_block.name] = curr_block
+                    continue
+
+                for label in instr["labels"]:
+                    if label in block_list:
+                        curr_block.children_list.append(block_list[label])
+                        block_list[label].parent_list.append(curr_block)
+                    else:
+                        new_block_obj = Block(name=label)
+                        curr_block.children_list.append(new_block_obj)
+                        new_block_obj.parent_list.append(curr_block)
+                        block_list[label] = new_block_obj
+                # child_list_as_blocks = curr_block.add_child_blocks(instr["labels"], block_list)
+                # for block in curr_block.children_list:
+                #     block_list[block.name] = block      # this needs to be saved because its a reference that is tricky to deal with
                 block_list[curr_block.name] = curr_block
-                # print("curr_block_instr list: ", curr_block.instruction_list)
-                # print("curr_block child block list: ", curr_block.children_list)
+
                 continue
         
         # this is the default for all instructions if they are not terminator
-        curr_block.add_instr(instr)
+        curr_block.instruction_list.append(copy.deepcopy(instr))
+        # print("after adding instructions: ", curr_block.instruction_list)
 
-    # need to consider the current block that was made, but didn't have a terminator
-    block_list[curr_block.name] = curr_block
+    
+    # if curr block is None, that means that it had a terminator
+    if curr_block is not None:
+        # need to consider the current block that was made, but didn't have a terminator
+        block_list[curr_block.name] = curr_block
+
+    # print("--------at the end of block creation--------")
+    # print_block_dict(block_list)
     return block_list
 
 class Block():
-    def __init__(self, name="", input_table = [], instruction_list = [], children_list=[], output_table={}):
-        self.name = name                                # each block has to have a name, just please don't have multiple labels with the same name
-        self.input_table = input_table
-        self.instruction_list = instruction_list
-        self.children_list = children_list
-        self.output_table = output_table
-    
+    def __init__(self, name="", input_table=None, instruction_list=None, children_list=None, output_table=None, parent_list=None):
+        self.name = name
+        self.input_table = input_table if input_table is not None else []
+        self.instruction_list = instruction_list if instruction_list is not None else []
+        self.parent_list = parent_list if parent_list is not None else []
+        self.children_list = children_list if children_list is not None else []
+        self.output_table = output_table if output_table is not None else {}
+        self.visited = False
+
     def add_instr(self, instr):
-        self.instruction_list.append(instr)
-    
-    def add_child_blocks(self, label_list):
-        # print("adding child blocks")
-        # print("label list: ", label_list)
+        self.instruction_list.append(copy.deepcopy(instr))
+    # NEED WHILE LOOP TO ITERATE TO FIXED POINT
+    def add_child_blocks(self, label_list, block_dict):
+        """
+        For label in label list, 
+        # label list should only be creating blocks that are not created already
+        """
         for label in label_list:
-            self.children_list.append(Block(name=label, input_table=[], instruction_list=[], children_list=[], output_table= {}))
+            # Create and append a new Block for each label
+            if label not in block_dict:
+                self.children_list.append(Block(name=label, parent_list=[self.name]))  #??
+            else:
+                # block_dict[label].parent_list.append(self.name) # since this block is now a child to the block called this fn, we have to add parents accordingly
+                self.children_list.append(block_dict[label])
         
-        # print("self.children_list: ", self.children_list)
         return self.children_list
     
     def __repr__(self):
-        return f""" Block with name: {self.name} and children: {[block.name for block in self.children_list]}"""
+        # return f""" Block with name: {self.name} \n children: {[block.name for block in self.children_list]} \n parents {[block for block in self.parent_list]}"""
+        # return f"""Block: {self.name} | Children : {[block.name for block in self.children_list]}"""
+        return f"""Block: {self.name}"""
+        return f"""Block: {self.name} | Input : {self.input_table}"""
     
     def ret_block_with_label(self,label):
         """
@@ -94,45 +140,110 @@ class Block():
         print("could not find child block")
         return None
 
-    
+def const_prop_transfer(instruction_list, starting_table):
+    """
+    The person calling me should handle any sort of meeting of variables that needs to be done.
+    For a given block, we will perform constant propagation. We don't change any of instructions, just the final table
+    """
+    final_table = copy.deepcopy(starting_table) # our final table should start with the values in the starting table
+    arith_ops = ["add", "sub", "mul", "div"]
+    # print("final table: ", final_table)
+    for instr in instruction_list:
+        if type(final_table) == list:
+            # print("instr: ", instr)
+            # print("final table turned into a list!!")
+            final_table = final_table[0]
+        # if the instruction is a constant, add it to the table, overriding if it was already in the table
+        if "op" in instr:         #{'dest': 'x', 'op': 'const', 'type': 'int', 'value': 4}
+            if instr["op"] == "const":
+                var_name = instr["dest"]        # pick out the var name from the instruction
+                final_table[var_name] = instr["value"]         # assign the value of var from instr
+            elif instr["op"] == "id":
+                var_to_pull_from = instr["args"][0]                          # this is the variable that we want to pull from
+                if var_to_pull_from in final_table:
+                    stored_var_val = final_table[var_to_pull_from]   # this is the stored instruction
+                    final_table[instr["dest"]] = stored_var_val               # update the table
+                
+                # else should be handled by the dead code elimination pass. The variable isn't in the table so when it is referenced, it is dead code
+
+            elif instr["op"] in arith_ops:
+                arg_0_name = instr["args"][0]
+                arg_1_name = instr["args"][1]
+
+                # need to get the value of arg 0, which can either be in the final_table or the starting table
+                # we want to start from the final_table because that will have the most recent value
+                if arg_0_name not in final_table:      # if there is a use for a term that hasn't been defined in the scope of this block, then we just ignore it and let it go on
+                    continue
+                else:
+                    arg_0_val = final_table[arg_0_name]
+                
+                if arg_1_name not in final_table:
+                    continue
+                else:
+                    arg_1_val = final_table[arg_1_name]
+
+                match instr["op"]:
+                    case "add":
+                        final_table[instr["dest"]] = arg_0_val + arg_1_val
+                    case "sub":
+                        final_table[instr["dest"]] = arg_0_val - arg_1_val
+                    case "mul":
+                        final_table[instr["dest"]] = arg_0_val * arg_1_val
+                    case "div":
+                        final_table[instr["dest"]] = arg_0_val // arg_1_val
+        
+        # if type(final_table) == list:
+            # print("instr: ", instr)
+            # print("final table turned into a list during this instruction!!")
+        # print("final table end loop: ", final_table)
+    return final_table
+
+# TODO: MAKE SURE THAT WE CHECK IF THE NUMBER OF RECEIVED IS EQUAL TO THe PARENTS WE HAVE 
+# TODO: We only actually change the instructions once we know that the intro tables have stabilized - Fixed point should handle this
 def const_prop(instruction_list, starting_table):
     """
     Local value numbering pass through the program.
     DESIGN CHOICE: ONE PASS OR TWO PASS: If you go in one pass, you keep checking backwards to see what value it takes on.
     If you do in two pass, your first pass just dumbly goes through adding values and the second pass will be in charge of propagating the values
     """
-    # print("instruction_list: ", instruction_list)
-    # print("starting table: ", starting_table)
-    table = starting_table
     new_instruction_list = []
+    table_for_block = copy.deepcopy(starting_table)
     arith_ops = ["add", "sub", "mul", "div"]
     for instr in instruction_list:
         # if the instruction is a constant, add it to the table, overriding if it was already in the table
-        # print("looking at instruction: ", instr)
+        # print(instr)
+        if type(table_for_block) == list:
+            # print("instr: ", instr)
+            # print("final table turned into a list!!")
+            table_for_block = table_for_block[0]
         if "op" in instr:         #{'dest': 'x', 'op': 'const', 'type': 'int', 'value': 4}
             if instr["op"] == "const":
-                var_name = instr["dest"]
-                table[var_name] = instr
-                new_instruction_list.append(instr)
-            elif instr["op"] == "id":
+                var_name = instr["dest"]        # pick out the var name from the instruction
+                table_for_block[var_name] = instr["value"]         # assign the value of var from instr
+            if instr["op"] == "id":                 #{'args': ['i'], 'dest': 'v8', 'op': 'id', 'type': 'int'}
                 var_to_pull_from = instr["args"][0]     # this is the variable that we want to pull from
-                if var_to_pull_from in table:
-                    var_to_pull_from_instr = table[var_to_pull_from]   # this is the stored instruction
-                    new_instr = var_to_pull_from_instr.copy()       # we want a copy of the stored instruction          
-                    new_instr["dest"] = instr["dest"]      # change the destination to be the current                  
-                    table[new_instr["dest"]] = new_instr            # update the table
+                if var_to_pull_from in table_for_block and table_for_block[var_to_pull_from] != {}:     # can only pull if there is something to pull from
+                    new_instr = {'dest': instr["dest"], 'op': 'const', 'type': instr["type"], 'value': table_for_block[var_to_pull_from]}
+                    table_for_block[instr["dest"]] = table_for_block[var_to_pull_from]    # still need to update the table in the current iteration but it won't persist past
                     new_instruction_list.append(new_instr) #add to list of instructions
-
                 else:
+                    table_for_block[instr["dest"]] = {}     # although we could not get a value, this var changed so it could affect things later
                     new_instruction_list.append(instr)  # if the var is not in the table, we can't necessarily do propagation, but this is still a valid program
+
+
             elif instr["op"] in arith_ops:
                 arg_0_name = instr["args"][0]
                 arg_1_name = instr["args"][1]
-                if arg_0_name not in table or arg_1_name not in table:      # if there is a use for a term that hasn't been defined in the scope of this block, then we just ignore it and let it go on
+                if (arg_0_name not in table_for_block or arg_1_name not in table_for_block):      # if there is a use for a term that hasn't been defined in the scope of this block, then we just ignore it and let it go on
+                    table_for_block[instr["dest"]] = {}     # although we could not get a value, this var changed so it could affect things later
                     new_instruction_list.append(instr)
                     continue
-                arg_0_val = table[arg_0_name]["value"]
-                arg_1_val = table[arg_1_name]["value"]
+                if (table_for_block[arg_0_name] == {} or table_for_block[arg_1_name] == {}):
+                    table_for_block[instr["dest"]] = {}     # although we could not get a value, this var changed so it could affect things later
+                    new_instruction_list.append(instr)
+                    continue
+                arg_0_val = table_for_block[arg_0_name]
+                arg_1_val = table_for_block[arg_1_name]
                 match instr["op"]:
                     case "add":
                         new_instr = {"dest": instr["dest"], "op": "const", "type":instr["type"], "value":arg_0_val+arg_1_val}
@@ -143,7 +254,7 @@ def const_prop(instruction_list, starting_table):
                     case "div":
                         new_instr = {"dest": instr["dest"], "op": "const", "type":instr["type"], "value":arg_0_val//arg_1_val}
 
-                table[instr["dest"]] = new_instr
+                table_for_block[new_instr["dest"]] = new_instr["value"]
                 new_instruction_list.append(new_instr)
                     
             else:
@@ -156,8 +267,7 @@ def const_prop(instruction_list, starting_table):
 
         # if the instruction has an id, then find the variable with the value and pull it
         
-    # print("end table: ", table)
-    return new_instruction_list, table
+    return new_instruction_list, table_for_block
 
 def var_consistency(var_dict, all_unique_dicts):
     """
@@ -186,61 +296,144 @@ def consolidate_input_tables(input_table_list):
     We want to consolidate all of the value tables that we receive from our predecessors. As such, if theres a value defined in one table, it should only be added to the final list if it's in all of the input tables.
     {'a': {'dest': 'a', 'op': 'const', 'type': 'int', 'value': 2}
     """
-    # print("consolidating input table: ", len(input_table_list))
-    # print(input_table_list)
+
     all_unique_dicts = {}
-    #checked_var = []    # optimization to make sure that we aren't double checking that we know isn't making it
     # we can only meet at max on the assignment_dict with the least number of items, they all can't agree on more than the min, bc the min doesn't have more 
-    smallest_dict_len = float('inf')
-    smallest_dict = None
+    largest_dict_len = 0
+    largest_dict = None
     for assignment_dict in input_table_list:
-        if len(assignment_dict) < smallest_dict_len:
-            smallest_dict_len = len(assignment_dict)
-            smallest_dict = assignment_dict
+        if len(assignment_dict) > largest_dict_len:
+            largest_dict_len = len(assignment_dict)
+            largest_dict = assignment_dict
     
-    
-    for var in smallest_dict:   # go through the smallest assignment
-        # print(var)
-        # print(smallest_dict[var])
-        var_name = var
-        var_val = smallest_dict[var]["value"]
-        add = True
+    if not largest_dict:
+        return [{}]
+    for var in largest_dict:   # go through the largest assignment
+        var_val = largest_dict[var]         # this is the starting value, if all dicts agree, then we can safely add this one
+        add = True                          # assume that we can start by adding it and find a case where can't add it
         for assignment_dict in input_table_list:    # go through and find out if that assignment is in every dict
-            if var_name in assignment_dict:
-                if assignment_dict[var_name]["value"] != var_val:
+            if var in assignment_dict:
+                if assignment_dict[var] != var_val:
                     add = False
                     break
-            else:
-                add = False
-                break
-        if add:
-            all_unique_dicts[var] = smallest_dict[var]
+            # no else: if its not in another block, then that means it wasn't defined there so we don't have to worry about it
+
+        if not add:
+            all_unique_dicts[var] = {}
+        else:
+            all_unique_dicts[var] = var_val
 
     if len(all_unique_dicts) == 0:
         return [{}]
-
-    # print("all unique dict: ", all_unique_dicts)
-    # all_unique_dicts = [{instr["dest"]: instr} for instr in all_unique_dicts]
     return [all_unique_dicts]
 
-# print(consolidate_input_tables([{'a': {'dest': 'a', 'op': 'const', 'type': 'int', 'value': 2}, 'b': {'dest': 'b', 'op': 'const', 'type': 'int', 'value': 1}, 'c': {'dest': 'c', 'op': 'const', 'type': 'int', 'value': 5}}, {'a': {'dest': 'a', 'op': 'const', 'type': 'int', 'value': 2}, 'b': {'dest': 'b', 'op': 'const', 'type': 'int', 'value': 1}, 'c': {'dest': 'c', 'op': 'const', 'type': 'int', 'value': 10}}]))
-def const_prop_on_blocks(starting_block_name, block_dict):
+def fixed_point_analysis(dict_of_blocks, starting_block):
+    """
+    We need to go through all of the blocks, starting from the main block.
+    1. Go through the block's instructions and update your table
+    2. Pass your table to children and add them to the queue.
+    3. Pop the next item of the queue and keep going.
 
+    IMPORTANT: THIS FUNCTION SHOULD NOT BE CHANGING ANY OF THE INSTRUCTIONS
+    """
+    # initialize worklist
+    # print("starting fixed point analysis")
+    fixed_point = False
+    while not fixed_point:
+        worklist = [starting_block]
+        visited = []
+        fixed_point = True
+        while worklist:
+            # print("worklist: ", worklist)
+            block_name = worklist.pop(0) # gets the most recent worklist item ( order doesn't matter)
+            if block_name in visited:
+                continue
+            visited.append(block_name)
+            # print("working on: ", block_name)
+
+            block_obj = dict_of_blocks[block_name]
+            block_obj.visited = True
+            # starting_block_table = dict_of_blocks[block_name].input_table.copy()
+
+            if len(block_obj.input_table) == 0:
+                block_obj.input_table = {}
+            elif len(block_obj.input_table) > 1:
+                block_obj.input_table = consolidate_input_tables(block_obj.input_table).copy()
+
+            
+            # transfer function
+            old_output_table = copy.deepcopy(block_obj.output_table)
+            instr_list, block_obj.output_table = const_prop(copy.deepcopy(block_obj.instruction_list), copy.deepcopy(block_obj.input_table.copy()))
+
+            if block_obj.output_table != old_output_table:
+                fixed_point = False  # Set flag to False if any block's output changed
+            # print("output: ", output_table)
+            # print("\n")
+            # if not blockChanged(block_obj.input_table, output_table):
+            #     early_break = True
+            #     for cb in block_obj.children_list:
+            #         if not cb.visited:      # if there is a child that hasn't been visited then it doesn't matter, i have to go to the next one
+            #             early_break = False
+
+            #     if early_break:
+            #         continue
+
+            # since we updated the parent, this information could carry over to the next case
+            # print("block object children: ", block_obj.children_list)
+            for child_block in block_obj.children_list:
+
+                worklist.append(child_block.name)      # need to append this to the list of blocks to visit
+                child_block = dict_of_blocks[child_block.name]      # get the block info from centralized source
+
+                if type(child_block.input_table) == dict:
+                    child_block.input_table = [child_block.input_table]
+                child_block.input_table.append(block_obj.output_table.copy())     # add our output to our child's to consider
+                dict_of_blocks[child_block.name] = child_block  # update the block dict with the new block obj information
+
+            # print(child_block)
+    # print("finished fix point analysis")
+    
+    # for key in dict_of_blocks:
+    #     print(dict_of_blocks[key])
+    return dict_of_blocks
+
+def blockChanged(input_dict, output_dict):
+    """
+    Return whether or not two dicts are the same, but in the context of a blocks input and output dict.
+    """
+    if type(input_dict) == list:
+        input_dict = input_dict[0]
+    if type(output_dict) == list:
+        output_dict = output_dict[0]
+    # different number of keys auto means the block has changed
+    if len(input_dict.keys()) != len(output_dict.keys()):
+        return True
+    else:
+        for key in input_dict.keys():
+            # if a var not in one dict, that means that the block changed
+            if key not in output_dict:
+                return True
+            # if the values are not the same then the block also changed
+            if input_dict[key] != output_dict[key]:
+                return True
+    
+    return False
+
+# print(consolidate_input_tables([{'a': 3, 'b': 4, 'c':5, 'd':{}}, {'a': 2, 'b': 1, 'c': 10, 'd':5, 'e':6}]))
+def const_prop_on_blocks(starting_block_name, this_func_block_dict):
+    #TODO: Can't do constant prop on a block unless we know it has received all information from it's parents
     queue = [starting_block_name]
     visited = []
     while queue:
         # print("starting const prop on block: ", starting_block_name)
         # print("queue: ", queue)
         block_name = queue.pop(0)
-        # if block_name in visited:
-        #     continue
-        visited.append(block_name)
-        init_block = block_dict[block_name]         # we always start with the main block
-        if len(init_block.children_list) == 0 and len(queue) != 0:   #heuristic for determining that we have reached the end block
+        if block_name in visited:
             continue
-        
-        # print("looking at block: ", init_block.name)
-        # print(f"{init_block.name} is given: ", init_block.input_table)
+        visited.append(block_name)
+        init_block = this_func_block_dict[block_name]         # we always start with the main block
+        # if len(init_block.children_list) == 0 and len(queue) != 0:   #heuristic for determining that we have reached the end block
+        #     continue
         
         # in the case there were multiple parents, need to consolidate into one
         if len(init_block.input_table) == 0:
@@ -248,25 +441,19 @@ def const_prop_on_blocks(starting_block_name, block_dict):
         elif len(init_block.input_table) > 1:
             init_block.input_table = consolidate_input_tables(init_block.input_table).copy()
         
-        # print("consolidated input: ", init_block.input_table)
+
         # perform constant prop
-        init_block.instruction_list, init_block.output_table = const_prop(init_block.instruction_list, init_block.input_table[0])
-        # print(f"after const prop: {init_block.name} gives: ", init_block.output_table)
+        init_block.instruction_list, output_table = const_prop(init_block.instruction_list, init_block.input_table[0])
 
 
-        # final_list = []
         for child_block in init_block.children_list:
-            # print("child block has name: ", child_block.name)
+
             queue.append(child_block.name)      # need to append this to the list of blocks to visit
-            child_block = block_dict[child_block.name]      # get the block info from centralized source
-            # print("child block input before: ", child_block.input_table)
+            child_block = this_func_block_dict[child_block.name]      # get the block info from centralized source
+
             child_block.input_table.append(init_block.output_table.copy())     # add our output to our child's to consider
-            block_dict[child_block.name] = child_block
-            # print("child block input after: ", child_block.input_table)
-            # print("\n")
-            # final_list.append(const_prop_on_blocks(child_block.name, block_dict))
-        # init_block.children_list = final_list
-    # print("finished going through all of the queue")
+            this_func_block_dict[child_block.name] = child_block
+
     return visited
 ############################################
 if __name__ == "__main__":
@@ -274,34 +461,41 @@ if __name__ == "__main__":
     prog = json.load(sys.stdin)
     # print("init program: ", prog)
     
-    block_dict = create_blocks(prog)
-    # print("block_dict: ", block_dict)
-    # return_prog = const_prop(prog)
-    block_ordering = const_prop_on_blocks("main", block_dict)
-    # print("")
-    # return_prog = const_prop(prog, {})
-    # print(return_prog)
-    # print("return_prog: ", return_prog)
-    instruction_list = []
-    seen_blocks = []
-    block_ordering.reverse()       # we want to go backwards through the visited
-    # remove duplicates
-    while block_ordering:
-        visited_block = block_ordering.pop(0)
-        if visited_block not in seen_blocks:
-            seen_blocks.append(visited_block)
+    for func in prog["functions"]:
+        instruction_list = []
+        instruction_list = func["instrs"]
 
-            instruction_list = block_dict[visited_block].instruction_list + instruction_list
-    
-    # print("final instruction list: ", instruction_list)
-    return_prog = {
-        "functions": [
-            {
-                "instrs": instruction_list,
-                "name" : "main"
-            }
-        ],
-        
-    }
-    # TODO: DOES LIVENESS program need to take into consideration the boolean values for the conditions?
-    json.dump(return_prog, sys.stdout, indent=2)
+        block_order = []
+        for instr in instruction_list:
+            if "label" in instr:
+                block_order.append(instr["label"])
+        block_order = [func["name"]] + block_order
+
+        # print("instruction_list: ", instruction_list)
+        block_dict = create_blocks(instruction_list, start_name=func["name"]).copy()
+
+        for block in block_dict:
+            print(block_dict[block].name)
+            print(block_dict[block].parent_list)
+
+        block_dict_copy = copy.deepcopy(block_dict)
+
+        new_block_dict = fixed_point_analysis(block_dict_copy, func["name"])
+
+        # ATP: new block dict contains the fixed point of all of the blocks so we can safely propagate constants now
+
+        block_ordering = const_prop_on_blocks(func["name"], new_block_dict)
+
+        # NEED TO DO LIVENESS ANALYSIS
+        instruction_list = []
+        seen_blocks = []
+        # remove duplicates
+        while block_order:
+            visited_block = block_order.pop(0)
+
+            if visited_block not in seen_blocks:
+                seen_blocks.append(visited_block)
+                instruction_list = instruction_list + copy.deepcopy(new_block_dict[visited_block].instruction_list)
+        func["instrs"] = instruction_list.copy()
+
+    json.dump(prog, sys.stdout, indent=2)

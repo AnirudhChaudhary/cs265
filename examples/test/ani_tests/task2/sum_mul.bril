@@ -6,5 +6,5 @@
   sum1: int = add a b;
   sum2: int = add a b;
   prod: int = mul sum1 sum2;
-  ret prod;
+  print prod;
 }

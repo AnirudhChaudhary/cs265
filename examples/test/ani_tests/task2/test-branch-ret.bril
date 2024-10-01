@@ -1,0 +1,14 @@
+@main {
+  a: int = const 47;
+  b: int = const 42;
+  br cond .left .right;
+.left:
+  b: int = const 1;
+  c: int = const 5;
+  ret c;
+.right:
+  b: int = const 2;
+  c: int = const 10;
+  ret c;
+
+}
