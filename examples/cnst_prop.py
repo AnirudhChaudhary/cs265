@@ -465,9 +465,9 @@ def get_block_use_def(block_obj):
     use_list = set()
     terminator_list = ["br", "jmp"]
     for instr in block_obj.instruction_list:
-        if "op" in instr:
-            if instr["op"] in terminator_list:
-                continue
+        # if "op" in instr:
+        #     if instr["op"] in terminator_list:
+        #         continue
         if "dest" in instr:
             def_list.add(instr["dest"])
         if "args" in instr:
@@ -495,18 +495,6 @@ def add_use_defs(start_block_name, block_dict_):
             queue.append(parent_block_obj.name)
 
     return block_dict_
-
-def union(list_of_vars):
-    """
-    Returns the union of all the variables in the `list_of_vars`
-    Input: List[set()]
-    Output: Set()
-    """
-    final_set = set()
-    for set in list_of_vars:
-        for var in set:
-            final_set.add(var)
-    return final_set
 
 
 def liveness_analysis(starting_block_name, block_dict):
@@ -541,13 +529,11 @@ def liveness_analysis(starting_block_name, block_dict):
 
             # out[B] = u in[S]
             new_out = set().union(*[block_dict[block.name].in_ for block in curr_block_obj.children_list])
-
+            # print("new out: ", new_out)
             # in[B] = use[B] ∪ (out[B] - def[B])
             diff_ = new_out.difference(curr_block_obj.def_)
             new_in = curr_block_obj.use_.union(diff_)
-
-            if len(new_out) == 0:
-                new_out = new_in
+            # print("new out: ", new_in)
 
             curr_block_obj.out_ = new_out
             curr_block_obj.in_ = new_in
@@ -558,6 +544,8 @@ def liveness_analysis(starting_block_name, block_dict):
             # print("def_: ", curr_block_obj.def_)
             # print("in_: ", curr_block_obj.in_)
             # print("out_: ", curr_block_obj.out_)
+            # print("----------------------------------")
+            block_dict[curr_block_name] = curr_block_obj
             if new_out != out_copy or new_in != in_copy:
                 fixed_point = False
             
@@ -572,8 +560,9 @@ def dead_code_elimination(block_dict):
         block_obj = block_dict[block]
         # print(block_obj.out_)
         for instr in block_obj.instruction_list:
+            # print(instr)
             if "dest" in instr:
-                if instr["dest"] not in block_obj.out_:
+                if instr["dest"] not in block_obj.out_ and instr["dest"] not in block_obj.use_:
                     continue
             final_instr_list.append(instr)
         
@@ -599,8 +588,9 @@ if __name__ == "__main__":
         block_dict = create_blocks(instruction_list, start_name=func["name"]).copy()
 
         # for block in block_dict:
-        #     print(block_dict[block].name)
-        #     print(block_dict[block].parent_list)
+        #     print("name: ", block_dict[block].name)
+        #     print("parents: ", block_dict[block].parent_list)
+        #     print("children: ", block_dict[block].children_list)
 
         block_dict_copy = copy.deepcopy(block_dict)
 
