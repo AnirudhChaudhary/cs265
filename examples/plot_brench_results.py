@@ -104,7 +104,7 @@ CMD_TEMPLATE = 'cat {file} | bril2json | python3 cnst_prop.py'
 ARGS_REGEX = r'total_args: (\d+)'
 
 # CSV file output path
-CSV_OUTPUT = 'baseline_arg_count.csv'
+CSV_OUTPUT = 'cnst_prop_args_count.csv'
 
 
 def find_bril_files(benchmarks_dir):
@@ -155,21 +155,93 @@ def main():
         # Run the command and capture the output
         output = run_command(cmd)
 
-        # Step 3: Extract the number of arguments
-        num_args = extract_arguments(output)
 
+        # Step 3: Extract the number of arguments
+        # num_args = extract_arguments(output)
         # If arguments were found, store the result
-        if num_args is not None:
+        if output is not None:
             file_name = os.path.basename(bril_file)
-            csv_data.append((file_name, num_args))
+            csv_data.append((file_name, output))
 
     # Step 4: Write the results to a CSV file
     write_to_csv(csv_data, CSV_OUTPUT)
     print(f"Results written to {CSV_OUTPUT}")
 
+import pandas as pd
+
+def count_total_arguments(file_path):
+    # Read the CSV file
+    df = pd.read_csv(file_path)
+    
+    # Sum the "Number of Arguments" column
+    total_arguments = df['Number of Arguments'].sum()
+    
+    return total_arguments
+
+import pandas as pd
+import re
+
+def clean_result(value):
+    # Remove non-numeric parts from the result using regex
+    cleaned_value = re.sub(r'[^\d]', '', value)
+    return int(cleaned_value) if cleaned_value else 0  # Convert to integer or 0 if empty
+
+def aggregate_results(file_path):
+    # Read the CSV file
+    df = pd.read_csv(file_path)
+    
+    # Apply cleaning to the 'result' column to remove non-numeric characters
+    df['cleaned_result'] = df['result'].apply(clean_result)
+    
+    # Group by the 'run' column and sum the cleaned 'result' column
+    aggregated_results = df.groupby('run')['cleaned_result'].sum()
+    
+    return aggregated_results
 
 if __name__ == "__main__":
-    main()
+    file_path = 'results.csv'  # Path to your CSV file
+    aggregated_results = aggregate_results(file_path)
+    
+    # Print the aggregated sum for each run type
+    print(aggregated_results)
+
+
+
+
+
+# if __name__ == "__main__":
+#     run_brench_command()
+    # main()
+    # import pandas as pd
+    # import matplotlib.pyplot as plt
+
+    # # Paths to your CSV files
+    # csv_file_1 = 'baseline_args_count.csv'  # First CSV file
+    # csv_file_2 = 'cnst_prop_args_count.csv'  # Second CSV file
+
+    # # Read the CSVs into DataFrames
+    # df1 = pd.read_csv(csv_file_1)
+    # df2 = pd.read_csv(csv_file_2)
+
+    # # Rename columns for clarity (e.g., 'Number of Arguments' from each CSV)
+    # df1.columns = ['File', 'Args_1']
+    # df2.columns = ['File', 'Args_2']
+
+    # # Merge the DataFrames on the 'File' column
+    # merged_df = pd.merge(df1, df2, on='File')
+
+    # # Calculate the difference between the second columns (Args_1 and Args_2)
+    # merged_df['Difference'] = merged_df['Args_1'] - merged_df['Args_2']
+
+    # # Plot the differences
+    # plt.figure(figsize=(10, 6))
+    # plt.bar(merged_df['File'], merged_df['Difference'], color='skyblue')
+    # plt.xticks(rotation=90)  # Rotate file names for better readability
+    # plt.xlabel('File Name')
+    # plt.ylabel('Difference in Arguments')
+    # plt.title('Difference in Number of Arguments Between Two CSVs')
+    # plt.tight_layout()  # Adjust layout to prevent label cut-off
+    # plt.show()
 
 
 

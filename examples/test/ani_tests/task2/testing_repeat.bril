@@ -1,0 +1,21 @@
+@main {
+  a: int = const 7;
+  b: int = const 3;
+  c: int = const 9;
+
+  sum1: int = add b a;
+  sum2: int = add a b;
+  sum3: int = add a c;
+  sum4: int = add a b;
+
+  prod1: int = mul sum1 sum3;
+  prod2: int = mul sum4 sum2;
+
+  final1: int = add prod1 prod2;
+  final2: int = add prod1 prod2;
+
+  final_result: int = div final2 final1;
+  final_result: int = div final2 final1;
+  
+  ret final_result;
+}

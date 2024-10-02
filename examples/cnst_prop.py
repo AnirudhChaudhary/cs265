@@ -30,29 +30,37 @@ def create_blocks(instr_list, start_name):
     list_of_instr = instr_list
     terminator_list = ["br", "jmp", "ret"]
     hit_terminator = False
+    terminator = None
     curr_block = Block(name=start_name)
     block_list = {}
     # go through all instructions
     for instr in list_of_instr:
         # some instr have operations, while others like label instr just have `label` defined
         if "label" in instr:
+            # print("found label: ", instr["label"])
             block_list[curr_block.name] = curr_block
             if instr["label"] in block_list:
                 ret_block = block_list[instr["label"]]      # pull this new block from the list
-                if hit_terminator:
-                    # print("returned block is: ", ret_block)
-                    curr_block = copy.deepcopy(ret_block)
-                else:
-                    curr_block.children_list.append(ret_block)
-                    ret_block.parent_list.append(curr_block)    # the new block's parent is the current block
+                # if hit_terminator:
+                #     # print("returned block is: ", ret_block)
+                #     curr_block = copy.deepcopy(ret_block)
+                # else:
+                # print("terminator: ", terminator)
+                if terminator != "jmp" and terminator != "br":
+                    # print("added children / parents")
+                    curr_block.children_list.add(ret_block)
+                    ret_block.parent_list.add(curr_block)  
+                # curr_block.children_list.append(ret_block)
+                # ret_block.parent_list.append(curr_block)    # the new block's parent is the current block
                     # print("new block is: ", curr_block)
                     # continue
+                terminator = None
                 curr_block = copy.deepcopy(ret_block)
             else:
                 # we haven't seen this label before
                 new_block_obj = Block(name=instr["label"])                        # create a new block object
-                block_list[curr_block.name].children_list.append(new_block_obj) # add this new label as a child of the block we were working on
-                new_block_obj.parent_list.append(block_list[curr_block.name])
+                block_list[curr_block.name].children_list.add(new_block_obj) # add this new label as a child of the block we were working on
+                new_block_obj.parent_list.add(block_list[curr_block.name])
                 block_list[new_block_obj.name] = new_block_obj                  # need to add the new block to our block dict
                 curr_block = new_block_obj                                      # need to change our current to be the new block
             hit_terminator = False
@@ -60,6 +68,7 @@ def create_blocks(instr_list, start_name):
             if instr["op"] in terminator_list:
                 # print("seen a terminator: ", instr)
                 hit_terminator = True
+                terminator = instr["op"]
                 # terminator instr is counted, but next instr is not guaranteed
                 curr_block.instruction_list.append(copy.deepcopy(instr))
                 if instr["op"] == "ret":    # ret doesn't always mean the end of the instr, so we just end this block and keep going
@@ -68,12 +77,14 @@ def create_blocks(instr_list, start_name):
 
                 for label in instr["labels"]:
                     if label in block_list:
-                        curr_block.children_list.append(block_list[label])
-                        block_list[label].parent_list.append(curr_block)
+                        curr_block.children_list.add(block_list[label])
+                        block_list[label].parent_list.add(curr_block)
                     else:
                         new_block_obj = Block(name=label)
-                        curr_block.children_list.append(new_block_obj)
-                        new_block_obj.parent_list.append(curr_block)
+                        # print("created new block with name: ", label)
+                        
+                        curr_block.children_list.add(new_block_obj)
+                        new_block_obj.parent_list.add(curr_block)
                         block_list[label] = new_block_obj
                 # child_list_as_blocks = curr_block.add_child_blocks(instr["labels"], block_list)
                 # for block in curr_block.children_list:
@@ -101,8 +112,8 @@ class Block():
         self.name = name
         self.input_table = input_table if input_table is not None else []
         self.instruction_list = instruction_list if instruction_list is not None else []
-        self.parent_list = parent_list if parent_list is not None else []
-        self.children_list = children_list if children_list is not None else []
+        self.parent_list = parent_list if parent_list is not None else set()
+        self.children_list = children_list if children_list is not None else set()
         self.output_table = output_table if output_table is not None else {}
         self.visited = False
         self.use_ = set()
@@ -461,20 +472,17 @@ def const_prop_on_blocks(starting_block_name, this_func_block_dict):
     return visited
 
 def get_block_use_def(block_obj):
-    def_list = set()
     use_list = set()
-    terminator_list = ["br", "jmp"]
+    terminator_list = ["jmp"]
     for instr in block_obj.instruction_list:
-        # if "op" in instr:
-        #     if instr["op"] in terminator_list:
-        #         continue
-        if "dest" in instr:
-            def_list.add(instr["dest"])
+        if "op" in instr:
+            if instr["op"] in terminator_list:
+                continue
         if "args" in instr:
             for arg in instr["args"]:
                 use_list.add(arg)
     
-    return use_list, def_list
+    return use_list
 def add_use_defs(start_block_name, block_dict_):
     """
     Does the liveness analysis for the block dict.
@@ -489,12 +497,41 @@ def add_use_defs(start_block_name, block_dict_):
         visited.append(curr_block_name)
         current_block_obj = block_dict_[curr_block_name]
         # print("computing use/def for: ", curr_block_name)
-        current_block_obj.use_, current_block_obj.def_ = get_block_use_def(copy.deepcopy(current_block_obj))
+        current_block_obj.use_ = get_block_use_def(copy.deepcopy(current_block_obj))
 
         for parent_block_obj in current_block_obj.parent_list:
             queue.append(parent_block_obj.name)
 
     return block_dict_
+
+def liveness_transfer_analysis(block_obj, out_set):
+    """
+    Go backwards through the block obj.
+    If a variable is used, add it to the live set. If a variable is defined remove it from the live set.
+    Perform defs before uses
+    """
+    # print("looking at block: ", block_obj.name)
+    live_var = out_set
+    instruction_list = copy.deepcopy(block_obj.instruction_list)
+    i = len(instruction_list) - 1
+    while i != -1:
+        instr = instruction_list[i]
+        # print("instr: ", instr)
+        # having a definition means that we don't need that variable to be live
+        if "dest" in instr:
+            if instr["dest"] in live_var:
+                live_var.remove(instr["dest"])
+        
+        # use that variable means that it has to be live above it
+        if "op" in instr:
+            if "args" in instr:
+                for arg in instr["args"]:
+                    live_var.add(arg)
+        
+        i -=1 
+    
+    return live_var
+
 
 
 def liveness_analysis(starting_block_name, block_dict):
@@ -511,10 +548,11 @@ def liveness_analysis(starting_block_name, block_dict):
         fixed_point = True
         while queue:
             curr_block_name = queue.pop(0)
+            # print("working on: ", curr_block_name)
             if curr_block_name in visited:
                 continue
             visited.append(curr_block_name)
-            curr_block_obj = block_dict[curr_block_name]
+            curr_block_obj = copy.deepcopy(block_dict[curr_block_name])
             # take a snapshot of the obj before
             out_copy = copy.deepcopy(curr_block_obj.out_)
             in_copy = copy.deepcopy(curr_block_obj.in_)
@@ -523,30 +561,37 @@ def liveness_analysis(starting_block_name, block_dict):
             # print("curr block name: ", curr_block_name)
             # print("use_: ", curr_block_obj.use_)
             # print("def_: ", curr_block_obj.def_)
-            # print("in_: ", curr_block_obj.in_)
             # print("out_: ", curr_block_obj.out_)
-            
+            # print("in_: ", curr_block_obj.in_)
+            # if curr_block_name == "next.ret":
+            #     print("looking at next.ret")
+            #     print("out_: ", curr_block_obj.out_)
+            #     print("in_: ", curr_block_obj.in_)
+            live_out = set().union(*[block_dict[block.name].in_ for block in curr_block_obj.children_list])
+            live_in = liveness_transfer_analysis(curr_block_obj, copy.deepcopy(live_out))
 
             # out[B] = u in[S]
-            new_out = set().union(*[block_dict[block.name].in_ for block in curr_block_obj.children_list])
-            # print("new out: ", new_out)
-            # in[B] = use[B] ∪ (out[B] - def[B])
-            diff_ = new_out.difference(curr_block_obj.def_)
-            new_in = curr_block_obj.use_.union(diff_)
+            # print("curr_block children: ", curr_block_obj.children_list)
+            # print("in for children: ", [block_dict[block.name].in_ for block in curr_block_obj.children_list])
+            # new_out = set().union(*[block_dict[block.name].in_ for block in curr_block_obj.children_list])
+            # # print("new out: ", new_out)
+            # # in[B] = use[B] ∪ (out[B] - def[B])
+            # diff_ = new_out.difference(curr_block_obj.def_)
+            # new_in = curr_block_obj.use_.union(diff_)
             # print("new out: ", new_in)
 
-            curr_block_obj.out_ = new_out
-            curr_block_obj.in_ = new_in
+            curr_block_obj.out_ = live_out
+            curr_block_obj.in_ = live_in
 
             # print("AFTER")
             # print("curr block name: ", curr_block_name)
             # print("use_: ", curr_block_obj.use_)
             # print("def_: ", curr_block_obj.def_)
-            # print("in_: ", curr_block_obj.in_)
             # print("out_: ", curr_block_obj.out_)
+            # print("in_: ", curr_block_obj.in_)
             # print("----------------------------------")
             block_dict[curr_block_name] = curr_block_obj
-            if new_out != out_copy or new_in != in_copy:
+            if live_out != out_copy or live_in != in_copy:
                 fixed_point = False
             
             for parent in curr_block_obj.parent_list:
@@ -573,7 +618,16 @@ if __name__ == "__main__":
     # the program comes in from stdin
     prog = json.load(sys.stdin)
     # print("init program: ", prog)
+    # total_args = 0
+    # for func in prog["functions"]:
+    #     instruction_list = func["instrs"]
+    #     for instr in instruction_list:
+    #         if "args" in instr:
+    #             total_args += len(instr["args"])
+
     
+    # json.dump(total_args, sys.stdout, indent=2)
+
     for func in prog["functions"]:
         instruction_list = []
         instruction_list = func["instrs"]
@@ -590,7 +644,9 @@ if __name__ == "__main__":
         # for block in block_dict:
         #     print("name: ", block_dict[block].name)
         #     print("parents: ", block_dict[block].parent_list)
+        #     print("parent set: ", set(block_dict[block].parent_list))
         #     print("children: ", block_dict[block].children_list)
+        #     print("children set: ", set(block_dict[block].children_list))
 
         block_dict_copy = copy.deepcopy(block_dict)
 
@@ -608,8 +664,14 @@ if __name__ == "__main__":
         #     print("block use: ", block_dict_post_liveness[block].use_)
         #     print("block def: ", block_dict_post_liveness[block].def_)
 
-        new_block_dict = liveness_analysis(block_order[-1], new_block_dict)
-
+        new_block_dict = liveness_analysis(block_order[-1], block_dict_post_liveness)
+        # print("--------- AFTER LIVENESS IS COMPLETE ---------")
+        # for block in new_block_dict:
+            # print("---------------------------------------------")
+            # print("block name: ", new_block_dict[block].name)
+            # print("block in: ", new_block_dict[block].in_)
+            # print("block out: ", new_block_dict[block].out_)
+            
         dead_code_elimination(new_block_dict)
 
         # print("end LA")
@@ -623,5 +685,16 @@ if __name__ == "__main__":
                 seen_blocks.append(visited_block)
                 instruction_list = instruction_list + copy.deepcopy(new_block_dict[visited_block].instruction_list)
         func["instrs"] = instruction_list.copy()
+    
+    # total_args = 0
+    # for func in prog["functions"]:
+    #     instruction_list = func["instrs"]
+    #     for instr in instruction_list:
+    #         if "args" in instr:
+    #             total_args += len(instr["args"])
 
+    
+    # json.dump(total_args, sys.stdout, indent=2)
+
+    # json.dump(3, sys.stdout, indent=2)
     json.dump(prog, sys.stdout, indent=2)
