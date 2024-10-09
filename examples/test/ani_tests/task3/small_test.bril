@@ -1,0 +1,22 @@
+# ARGS: 8
+@A(input: int) {
+  value: int = id input;
+  i: int = id v3;
+  jmp .B;
+.C:
+  v4: int = id i;
+  v5: int = const 0;
+  v6: bool = gt v4 v5;
+  jmp .D;
+.B:
+  v12: int = sub v10 v11;
+  i: int = id v12;
+  jmp .D;
+.D:
+  v13: int = id result;
+  print v13;
+  v14: int = const 0;
+  jmp .E;
+.E:
+  v2: int = const 2;
+}

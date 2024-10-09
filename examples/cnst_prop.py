@@ -41,28 +41,22 @@ def create_blocks(instr_list, start_name):
             block_list[curr_block.name] = curr_block
             if instr["label"] in block_list:
                 ret_block = block_list[instr["label"]]      # pull this new block from the list
-                # if hit_terminator:
-                #     # print("returned block is: ", ret_block)
-                #     curr_block = copy.deepcopy(ret_block)
-                # else:
-                # print("terminator: ", terminator)
+
                 if terminator != "jmp" and terminator != "br":
                     # print("added children / parents")
                     curr_block.children_list.add(ret_block)
                     ret_block.parent_list.add(curr_block)  
-                # curr_block.children_list.append(ret_block)
-                # ret_block.parent_list.append(curr_block)    # the new block's parent is the current block
-                    # print("new block is: ", curr_block)
-                    # continue
-                terminator = None
+
                 curr_block = copy.deepcopy(ret_block)
             else:
                 # we haven't seen this label before
                 new_block_obj = Block(name=instr["label"])                        # create a new block object
-                block_list[curr_block.name].children_list.add(new_block_obj) # add this new label as a child of the block we were working on
-                new_block_obj.parent_list.add(block_list[curr_block.name])
+                if terminator != "jmp" and terminator != "br":
+                    block_list[curr_block.name].children_list.add(new_block_obj) # add this new label as a child of the block we were working on
+                    new_block_obj.parent_list.add(block_list[curr_block.name])
                 block_list[new_block_obj.name] = new_block_obj                  # need to add the new block to our block dict
                 curr_block = new_block_obj                                      # need to change our current to be the new block
+            terminator = None
             hit_terminator = False
         if "op" in instr:
             if instr["op"] in terminator_list:
@@ -81,14 +75,11 @@ def create_blocks(instr_list, start_name):
                         block_list[label].parent_list.add(curr_block)
                     else:
                         new_block_obj = Block(name=label)
-                        # print("created new block with name: ", label)
                         
                         curr_block.children_list.add(new_block_obj)
                         new_block_obj.parent_list.add(curr_block)
                         block_list[label] = new_block_obj
-                # child_list_as_blocks = curr_block.add_child_blocks(instr["labels"], block_list)
-                # for block in curr_block.children_list:
-                #     block_list[block.name] = block      # this needs to be saved because its a reference that is tricky to deal with
+
                 block_list[curr_block.name] = curr_block
 
                 continue
