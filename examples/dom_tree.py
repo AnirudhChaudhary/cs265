@@ -192,6 +192,28 @@ def dominance_transfer_analysis(b_dict, b_name):
     b_dict[b_name] = block_obj
     return orig_len == len(block_obj.dom)
 
+def create_dom_front(b_dict):
+    """
+    Finds and populates dominance frontier for all blocks in the block dictionary.
+
+    Input: b_dict: dict of {block_name:block_obj}
+    Output: b_map: map of block name to blocks on the frontier
+    """
+    df = {}
+    for b in b_dict:
+        df[b] = []
+        # this loops through all of the blocks to find the dominance frontier
+        # i is a prospective frontier block
+        for i in b_dict:
+            # a prospect cannot be dominated by the parent
+            if b in block_dict[i].dom:
+                continue
+            
+            # go through i's parent list and we should check that prospect's parents are dominated by the original
+            for predecessor in b_dict[i].parent_list:
+                if b in predecessor.dom:
+                    df[b].append(i)
+    return df
 if __name__ == "__main__":
     # the program comes in from stdin
     prog = json.load(sys.stdin)
@@ -221,15 +243,18 @@ if __name__ == "__main__":
         # print("instruction_list: ", instruction_list)
         block_dict = create_blocks(instruction_list, start_name=func["name"]).copy()
 
-        for block in block_dict:
-            print("name: ", block_dict[block].name)
-            print("parents: ", block_dict[block].parent_list)
-            print("parent set: ", set(block_dict[block].parent_list))
-            print("children: ", block_dict[block].children_list)
-            print("children set: ", set(block_dict[block].children_list))
+        # for block in block_dict:
+        #     print("name: ", block_dict[block].name)
+        #     print("parents: ", block_dict[block].parent_list)
+        #     print("parent set: ", set(block_dict[block].parent_list))
+        #     print("children: ", block_dict[block].children_list)
+        #     print("children set: ", set(block_dict[block].children_list))
         
         fixed_point_analysis(block_dict, block_order[-1])
         # dominance_transfer_analysis(block_dict, "B")
 
-        for b in block_dict:
-            print(f"b: {b} dom: {block_dict[b].dom}")
+        # for b in block_dict:
+        #     print(f"b: {b} dom: {block_dict[b].dom}")
+
+        df_map = create_dom_front(block_dict)
+        print("df map: ", df_map)
