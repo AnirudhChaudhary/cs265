@@ -1,4 +1,4 @@
-# ARGS: 8
+# ARGS: 8 Very bad test, need a single entry block in this example
 @A(input: int) {
   value: int = id input;
   i: int = id v3;

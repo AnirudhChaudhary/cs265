@@ -1,0 +1,5 @@
+# ARGS: 8
+@A(input: int) {
+  x: int = const 1;
+  x: int = add x x;
+}
