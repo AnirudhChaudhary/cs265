@@ -1,0 +1,15 @@
+# ARGS: 8
+@A(input: int) {
+  v1: int = const 1;
+.B:
+  v1: int = const 3;
+.C:
+  v1: int = const 4;
+  br v1 .D .E;
+.D:
+  v1: int = const 5;
+  jmp .C;
+.E:
+  v1: int = const 6;
+  jmp .B;
+}

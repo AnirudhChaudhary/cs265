@@ -9,10 +9,10 @@ pipeline = [
   "brili -p {args}",
 ]
 
-[runs.const_prop]
+[runs.ssa]
 pipeline = [
   "bril2json",
-  "python3 cnst_prop.py",
+  "python3 dom_tree.py",
   "brili -p {args}",
 ]
 
