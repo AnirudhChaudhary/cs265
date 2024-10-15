@@ -1,0 +1,25 @@
+@main() {
+  x : int = const 0;
+  br x .left .right;
+.left:
+  x : int = const 0;
+  br x .left_left .left_right;
+.right:
+  x : int = const 0;
+  br x .right_left .right_right;
+.left_left:
+  x : int = const 0;
+  jmp .end;
+.left_right:
+  x : int = const 0;
+  jmp .end;
+.right_right:
+  x : int = const 0;
+  jmp .end;
+.right_left:
+  x : int = const 0;
+  jmp .end;
+.end:
+  x : int = const 1;
+  jmp .main;
+}

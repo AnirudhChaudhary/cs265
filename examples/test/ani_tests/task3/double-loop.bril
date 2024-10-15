@@ -1,0 +1,10 @@
+@main() {
+  x : int = const 0;
+  br x .left .right;
+.left:
+  x : int = const 1;
+  jmp .main;
+.right:
+  x : int = const 2;
+  jmp .main;
+}

@@ -221,15 +221,18 @@ def create_dom_front(dominator_map, b_dict, top_level):
         for child in curr_block_obj.children_list:
             if curr_block_name in dominator_map[child.name]:        # if the current block is dominated by a child, then it is a back edge
                 if child.name not in back_edge_map:     # if there are multiple back edges back to a header
-                    back_edge_map[child.name] = [curr_block_name]
+                    back_edge_map[child.name] = set()
+                    back_edge_map[child.name].add(curr_block_name)
                 else:
-                    back_edge_map.append(curr_block_name)
+                    # print("ive seen this before: ", child.name)
+                    back_edge_map[child.name].add(curr_block_name)
             else:
                 strict_dominator_map[curr_block_name].append(child.name)    # otherwise this is a regular edge in our graph
             
             if child.name not in strict_dominator_map:
                 worklist.append(child.name)
     
+    # print("strict dominator map: ", strict_dominator_map)
     parent_map = {}
     for parent in strict_dominator_map:
         for new_parent in strict_dominator_map[parent]:
@@ -257,15 +260,6 @@ def create_dom_front(dominator_map, b_dict, top_level):
             #     if pred.name in dominator_map[b]:
             #         df[b].append(pred.name)
     
-    # go through the back edges because those
-    for loop_header in back_edge_map:
-        frontier_block = loop_header
-        block_obj = b_dict[frontier_block]
-
-        for pred in block_obj.parent_list:
-            if pred.name not in df:
-                df[pred.name] = []
-            df[pred.name].append(loop_header)
     # print("df: ", df)
     # print("strict dominator map: ", strict_dominator_map)
     # print("back edge map: ", back_edge_map)
@@ -473,6 +467,8 @@ def insert_phi(dom_front_map, var_def_map, var_list, block_dict):
     """
     # print("var list: ", var_list)
     for var in var_list:
+        # print("--------------")
+        # print("var: ", var)
         worklist = var_def_map[var].copy() #inspired from chatgpt - worklist
         # print("starting worklist: ", worklist)
         seen = []
@@ -480,6 +476,8 @@ def insert_phi(dom_front_map, var_def_map, var_list, block_dict):
             # print("--------------------------")
             # print("worklist: ", worklist)
             defining_block = worklist.pop()
+            if defining_block in seen:
+                continue
             seen.append(defining_block)
             # print("looking at block: ", defining_block)
             # print("defining block: ", defining_block)
@@ -507,7 +505,7 @@ def insert_phi(dom_front_map, var_def_map, var_list, block_dict):
                 
                 if not added_phi:       #if we haven't added phi, then we must not have seen it before and we can add it to the instruction list
                     # print("added instruction into: ", block)
-                    block_obj.instruction_list.insert(1, new_phi)       # putting a deepcopy here because we dont want reference issues
+                    block_obj.instruction_list.insert(1, new_phi)       # insert at position 1 because usually the label is defined in the first spot
                     # print("block: ", block)
                     # print("block instruction list: ", block_obj.instruction_list)
 
@@ -582,79 +580,86 @@ def find_dominators(b_dict, top_level):
     return dom_map
                 
 loop_map = {}
-def find_loops(b_dict, top_level):
+def find_loops(b_dict, top_level, be_map):
     """
     Goes through the control flow graph and finds all the loops.
     """
-    cfg = list(b_dict.keys())
-    dom_map = {}
-    for block in cfg:
-        if block == top_level:
-            dom_map[block] = {top_level}
-        else:
-            dom_map[block] = set(cfg.copy())
+    # print("back edge map: ", be_map)
+    loops = []
+    for header in be_map:
+        for latch in be_map[header]:
+            loop = set()
+            print(f"header: {header}  latch: {latch}")
+            for b_name in b_dict:
+                print("---------------------------")
+                print("looking at: ", b_name)
+                reachable = dfs(b_name, latch, b_dict)
+                print("reachable: ", reachable)
+                if latch not in reachable:
+                    continue
+                else:
+                    if header in reachable:
+                        continue
+                    else:
+                        loop.add(b_name) # it is possible for the current node to make it to the end without going through header
+            loop.add(header)
+            loop.add(latch)
+            loops.append(loop)
 
+    #         seen = []
+    #         desired = latch
+    #         loops.extend(find_path_to(desired, seen, b_dict, header))
+    return loops
+    print("all loops found: ", loops)
 
-    fixed_point = False
-    while not fixed_point:
-        fixed_point = True
-        for block in cfg:
-            # print("----------------")
-            # print("looking at block: ", block)
-            if block == top_level:
-                continue
-                
-            previous_dom = copy.deepcopy(dom_map[block])
-            # print("previous_dom: ", previous_dom)
-            if b_dict[block].parent_list:
-                parent_list = list(b_dict[block].parent_list)
-                new_dom = dom_map[parent_list[0].name]
-                # new_dom = b_dict[parent_list[0].name].dominated_by.copy()
-                # print("new_dom start: ", new_dom)
-                for parent in b_dict[block].parent_list:
-                    # parent = b_dict[parent.name]
-                    new_dom = new_dom.intersection(dom_map[parent.name])
-                    # print("parents dominated by: ", parent.dominated_by)
-                    # print("looking at parent: ", parent.name)
-                    # print("new_dom: ", new_dom)
-                
-                new_dom.add(block)
-                # print("new_dom after: ", new_dom)
-            
+def dfs(start_name, desired, b_dict):
+    q = [start_name]
+    visited = []
+    while q:
+        block = q.pop(0)
+        if block in visited:
+            continue
+        visited.append(block)
+        if block == desired:
+            break
+        block_obj = b_dict[block]
+        for child in block_obj.children_list:
+            q.append(child.name)
+    return visited
 
-            
-            if new_dom != previous_dom:
-                dom_map[block] = new_dom
-                fixed_point = False
+def find_path_to(desired, seen, b_dict, curr):
+    # print("desired: ", desired)
+    # print("seen: ", seen)
+    # print("curr: ", curr)
+    # print("-------------")
 
-    # remove self reference because that's a very trivial loop
-    for block_name in cfg:
-        if block_name in dom_map[block_name]:
-            dom_map[block_name].remove(block_name)
+    child_list = list(b_dict[curr].children_list)
+    if curr in seen:
+        return []
+    elif curr == desired:
+        return [[curr]]
 
+    if len(child_list) == 0:
+        return []
+
+    seen.append(curr)
+    found_paths = []
+    for child in child_list:
+        child_path = find_path_to(desired, seen, b_dict, child.name)
+        if child_path:
+            found_paths.extend(child_path)
+
+    # print("I am: ", curr)
+    # print("I found, from my children : ", found_paths)
+
+    all_paths = []
+    for path in found_paths:
+        all_paths.append([curr] + path)
+
+    # print("all paths including me: ", all_paths)
+
+    return all_paths
     
-    # invert the dominance map
-
-    # dominating_map = {}
-    # for b_name in dom_map:
-    #     if b_name not in dominating_map:
-    #         dominating_map[b_name] = []
-    #     for b_name_two in dom_map:
-    #         if b_name in dom_map[b_name_two]:    
-    #             dominating_map[b_name].append(b_name_two)
-    dom_map = inv_map(dom_map).copy()
-
-    # go through all of the blocks in the control flow graph
-    global loop_map
-    # find back edges
-    for block_name in cfg:
-        block_obj = b_dict[block_name]
-        for child_block in block_obj.children_list:
-            if block_name in dom_map[child_block.name]:
-                loop_map[child_block.name] = ["loop header"]
-    
-    print("loop map: ", loop_map)
-
 def inv_map(map):
     dominating_map = {}
     for b_name in map:
@@ -664,6 +669,31 @@ def inv_map(map):
             if b_name in map[b_name_two]:    
                 dominating_map[b_name].append(b_name_two)
     return dominating_map
+
+def insert_phi_bc_loops():
+    # go through the back edges because those
+    for loop_header in back_edge_map:
+        frontier_block = loop_header
+        block_obj = b_dict[frontier_block]
+
+        for pred in block_obj.parent_list:
+            if pred.name not in df:
+                df[pred.name] = []
+            df[pred.name].append(loop_header)
+
+def remove_back_edges(b_dict, top_level):
+    worklist = [top_level]
+    seen = []
+    while worklist:
+        curr_block = worklist.pop(0)
+        b_obj = b_dict[curr_block]
+
+        new_child_list = []
+        for child in b_obj.children_list:
+            if child not in seen:
+                new_child_list.append(child)
+
+
 if __name__ == "__main__":
     # the program comes in from stdin
     prog = json.load(sys.stdin)
@@ -705,6 +735,8 @@ if __name__ == "__main__":
 
         # print("instruction_list: ", instruction_list)
         block_dict = create_blocks(instruction_list, start_name=func["name"]).copy()
+        # original_block_dict = copy.deepcopy(block_dict)
+        # block_dict = remove_back_edges(original_block_dict, func["name"])
 
         # for block in block_dict:
         #     print("name: ", block_dict[block].name)
@@ -721,6 +753,9 @@ if __name__ == "__main__":
         dominators = find_dominators(block_dict, func["name"])
         # print("dominators: ", dominators)
         df_map, back_edge_map = create_dom_front(dominators, block_dict, func["name"])
+
+        for key in back_edge_map:
+            back_edge_map[key] = list(back_edge_map[key])
         # print("df map: ", df_map)
         # print("frontier map: ", df_map)
         # print(find_dominating_map(block_dict))
@@ -733,15 +768,17 @@ if __name__ == "__main__":
         #     print(f"block: {block} dominated by: {block_dict[block].dominated_by}")
         # print("df map: ", df_map)
 
+        # inserts phi based off frontier
         insert_phi(df_map, var_def_map, variables, block_dict)
 
         for block_name in block_order:
             if block_name not in dom_graph:
                 dom_graph[block_name] = []
-        # renaming_pass(block_dict, dom_graph, func["name"], block_order)
+        renaming_pass(block_dict, dom_graph, func["name"], block_order)
 
         ########### LOOP INVARIANCE ####################
-        # find_loops(block_dict, func["name"])
+        # need to be careful that values in one loop don't interfere with anything in a different loop with the same header
+        print(find_loops(block_dict, func["name"], back_edge_map))
 
         instruction_list = []
         seen_blocks = []
@@ -756,4 +793,5 @@ if __name__ == "__main__":
     
     # print(is_ssa(prog))
 
-    json.dump(prog, sys.stdout, indent=2)
+    # json.dump(prog, sys.stdout, indent=2)
+# 

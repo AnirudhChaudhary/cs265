@@ -1,0 +1,20 @@
+@A() {
+  x : int = const 0;
+  br x .B .F;
+.B:
+  x : int = const 1;
+  y : int = add x x;
+  br x .C .D;
+.C:
+  x : int = const 2;
+  br x .E .B;
+.D:
+  x : int = const 1;
+  br x .B .F;
+.E:
+  x : int = const 2;
+  br x .C .B;
+.F:
+  x : int = const 2;
+  br x .B .D;
+}
