@@ -7,6 +7,7 @@ Points of confusion:
     a. How does the dominance relation / everything look for that?
 2. What is the fixed point relation for the loop invariant motion? - Is it that having one thing become loop invariant means other things can be made loop invariant?
 - Look through the headers and find the one with the smallest dominance set, and then do algorithm
+- Reasoning: 
 3. How do you convert while into do-while / how do you recognize while in the first place?
 
 Need to add an entry block if there isn't one yet.
@@ -23,3 +24,17 @@ All arguments to the instruction are loop invariant - check that all args are pa
 The instruction is deterministic - check instr is in a list of deterministic functions
 
 Important: If a value is defined in a loop, it might have a different value than in another loop
+
+All the nodes in my dominance frontier:
+    Not any node that I dominate
+    for all the other nodes:
+        if they have a predecessor that I dominate, it is added to my dominance frontier
+
+
+- for any loops that refer to themselves, make sure that you are 
+Renaming:
+MAKE SURE TO POP THE STACK
+
+
+
+
