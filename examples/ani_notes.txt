@@ -35,6 +35,10 @@ All the nodes in my dominance frontier:
 Renaming:
 MAKE SURE TO POP THE STACK
 
+------------------------
+
+1. What is the dominance relation...what is going on? Look at the two examples on the ipad and actually work through themselves
+2. What is wrong with the `pow` bril file?
 
 
 

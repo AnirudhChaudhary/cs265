@@ -143,17 +143,28 @@ def create_dom_front(dominator_map, b_dict):
     Input: b_dict: dict of {block_name:block_obj}
     Output: df: map of block name to blocks on the frontier
     """
-    df = {}
-    for A in b_dict:
-        df[A] = []                      # initialize the dominance frontier
-        for B in b_dict:
-            B_block_obj = b_dict[B]
-            if B in dominator_map[A]:   # B can't be in the dominance of A if it is dominated by A
-                continue
+    # df = {}
+    # for A in b_dict:
+    #     df[A] = []                      # initialize the dominance frontier
+    #     for B in b_dict:
+    #         B_block_obj = b_dict[B]
+    #         if B in dominator_map[A]:   # B can't be in the dominance of A if it is dominated by A
+    #             continue
 
-            for b_pred_obj in B_block_obj.parent_list:          # B is in the dom front of A if B has a predecessor that A dominates
-                if b_pred_obj.name in dominator_map[A]:
-                    df[A].append(B)
+    #         for b_pred_obj in B_block_obj.parent_list:          # B is in the dom front of A if B has a predecessor that A dominates
+    #             if b_pred_obj.name in dominator_map[A]:
+    #                 df[A].append(B)
+
+    df = {}
+    for b_name in b_dict:
+        df[b_name] = []
+    
+    for b_name in b_dict:
+        block_obj = b_dict[b_name]
+        parent_list_list = list(block_obj.parent_list) 
+        if len(parent_list_list) > 1:
+            for parent_name in parent_list_list:
+                df[parent_name.name].append(b_name)
     return df
             
 
@@ -166,9 +177,12 @@ def renaming_pass(b_dict, dom_map, top_level, block_ordering):
     dom_map: Map {block_name: List[block_name]} - a map of the immediate dominators for the block
     top_level: str - the entry block where we have the start the renaming
     """
-    rename(top_level, b_dict, dom_map, {}, block_ordering)
+    init_stack = {}
+    for var in fresh_name_dict:
+        init_stack[var] = [var]
+    rename(top_level, b_dict, dom_map, init_stack, block_ordering)
 
-fresh_name_dict = {}
+
 
 def fresh_name(var_name):
     """
@@ -176,7 +190,7 @@ def fresh_name(var_name):
     """
     global fresh_name_dict
     if var_name not in fresh_name_dict:
-        fresh_name_dict[var_name] = -1
+        fresh_name_dict[var_name] = -2
     
     new_num = fresh_name_dict[var_name] + 1
     fresh_name_dict[var_name] += 1
@@ -191,20 +205,26 @@ def rename(block_name, b_dict, dom_map, stack, block_order):
     dom_map: dict - {block_name: block_name (that dominates it)}
     stack: dict - {var: most_recent_name} = the stack is utilized for the uses
     """
+    # print("-------------------")
+    # print("block: ", block_name)
+    # print("My block started with this stack: ", stack) 
+    # print("dom map: ", dom_map)
+    new_stack = stack.copy()
     block_obj = b_dict[block_name]
     
+    # print("block name: ", block_name)
     for instr in block_obj.instruction_list:
         # args
         # this instruction's arguments are changed based off whatever the most recent thing on the stack is
         # we do the arguments first and we are confident that this will work because you can't use a variable before initializing it, and when you initalize, the stack will get populated
         # print("stack: ", stack)
         # print("orig_instr: ", instr)
-        if "args" in instr:
+        if "args" in instr:                             # this means that we are using the variable, so pull from the stack
             final_args_list = []
             if not("op" in instr and "phi" == instr["op"]):
                 for arg in instr["args"]:
-                    if arg in stack:
-                        final_args_list.append(stack[arg][-1])
+                    if arg in new_stack:
+                        final_args_list.append(new_stack[arg][-1])
                     else:
                         final_args_list.append(arg)
                 # instr["args"] = [stack[arg][-1] for arg in instr["args"] if arg in stack]
@@ -216,8 +236,8 @@ def rename(block_name, b_dict, dom_map, stack, block_order):
 
             #add the new fresh variable to stack because all subsequent uses have to use this name
             if not instr["dest"] in stack:
-                stack[instr["dest"]] = []
-            stack[instr["dest"]].append(fresh)
+                new_stack[instr["dest"]] = []
+            new_stack[instr["dest"]].append(fresh)
 
             # set the destination to be the fresh name
             instr["dest"] = fresh
@@ -228,6 +248,7 @@ def rename(block_name, b_dict, dom_map, stack, block_order):
     b_dict[block_name] = block_obj
 
     # print("current block is: ", block_name)
+    # look into your children and change the phis
     for child_block in block_obj.children_list:
         # print("looking at child: ", child_block.name)
         child_block = b_dict[child_block.name]
@@ -238,15 +259,18 @@ def rename(block_name, b_dict, dom_map, stack, block_order):
                 while i < len(instr["labels"]):
                     if instr["labels"][i] == block_name:
                         # print("instr: ", instr)
-                        instr["args"][i] = stack[instr["args"][i]][-1]      #renaming a phi
+                        instr["args"][i] = new_stack[instr["args"][i]][-1]      #renaming a phi
                         # print("new instr: ", instr)
                     i += 1
         b_dict[child_block.name] = child_block
     
+    original_stack = copy.deepcopy(new_stack)
+    # print("After going through instructions -> stack: ", original_stack)
     for block in block_order:
         if block in dom_map[block_name]:
+            # print("checking to make sure that the value didn't change: ", original_stack)
     # for child_block_name in dom_map[block_name]:
-            rename(block, b_dict, dom_map, stack, block_order)
+            rename(block, b_dict, dom_map, copy.deepcopy(original_stack), block_order)
 
 
     
@@ -261,11 +285,14 @@ def insert_phi(dom_front_map, var_def_map, var_list, block_dict):
     var_list: List[variables_names]
     block_dict: (Dict) {block_name: Block()}
     """
+    # print("frontier map: ", dom_front_map)
     # print("var list: ", var_list)
+    # print("var def map: ", var_def_map)
+
     for var in var_list:
         # print("--------------")
         # print("var: ", var)
-        worklist = var_def_map[var].copy() #inspired from chatgpt - worklist
+        worklist = var_def_map[var].copy()     # our defined block list could change as the program goes on so thats why it is in a while loop         #inspired from chatgpt - worklist 
         # print("starting worklist: ", worklist)
         seen = []
         while worklist:
@@ -285,7 +312,7 @@ def insert_phi(dom_front_map, var_def_map, var_list, block_dict):
                 # go through the block to make sure the phi function isn't there, and if it is there then add the var and defining block
                 block_obj = block_dict[block]
                 added_phi = False
-                for instr in block_obj.instruction_list:
+                for instr in block_obj.instruction_list:                                        # we go through the instructions to see if we already have a phi defined. If we do and the block is defined alr, then add it to the phi
                     if "op" in instr and "args" in instr and "labels" in instr:
                         if instr["op"] == "phi" and var in instr["args"]:
                             if defining_block not in instr["labels"]:
@@ -318,6 +345,7 @@ def insert_phi(dom_front_map, var_def_map, var_list, block_dict):
             if "op" in instr and "dest" in instr and "args" in instr and "labels" in instr:
                 if instr["op"] == "phi":
                     if len(instr["args"]) < 2:
+                        # print("pruned instr")
                         continue
             final_instr_list.append(instr)
         
@@ -408,10 +436,7 @@ def find_loops(b_dict, top_level, be_map):
     return loops
     print("all loops found: ", loops)
 
-
-
-
-    
+  
 def inv_map(map):
     dominating_map = {}
     for b_name in map:
@@ -422,7 +447,32 @@ def inv_map(map):
                 dominating_map[b_name].append(b_name_two)
     return dominating_map
 
+def create_dominator_tree(block_dict, start_node, dom):
+    """
+    Create the tree to find what the immediate dominators for each of the nodes is.
+    """
+    parent = {b: start_node for b in block_dict}
 
+    # print(dom)
+    # you can't be your own immediate dominator
+    # Removes self as a dominator 
+    for d in dom:
+        for dominat in dom[d]:
+            if dominat == d:
+                dom[d].remove(d)
+
+    # go through all of the blocks to find their immediate dominators
+    for b in block_dict:
+        potential_parent = dom[b].copy()
+        for dominator in dom[b]:                    #go through all blocks that dominate the current node, we want to eliminate any node that dominates any other node in the list
+            for pred in dom[dominator]:            
+                if pred in potential_parent:        # if there is a node (A) that dominates a node (B) that dominates our current node then A cannot be an immediate dominator of our current node. A block can't have two dominators so we are guaranteed to have 1 or zero left
+                    potential_parent.remove(pred)
+        assert len(potential_parent) <= 1, "found more than one potential parent"
+        
+        parent[b] = potential_parent
+
+    return parent
 
 
     
@@ -443,11 +493,21 @@ if __name__ == "__main__":
     for func in prog["functions"]:
         instruction_list = []
         instruction_list = func["instrs"]
+        if "args" in func:
+            func_args = func["args"]
+        else:
+            func_args = []
+        variables = []
+        var_def_map = {}
+        for arg_dict in func_args:
+            var_name = arg_dict["name"]
+            variables.append(var_name)
+            var_def_map[var_name] = {func["name"]}
 
         block_order = []
-        var_def_map = {}
-        variables = []
         curr_label = func["name"]
+
+        # Create variable definition map which will be used for inserting phis
         for instr in instruction_list:
             if "label" in instr:
                 curr_label = instr["label"]
@@ -520,6 +580,7 @@ if __name__ == "__main__":
         #     print(f"b: {b} dom: {block_dict[b].dom}")
         dominators = find_dominators(block_dict, func["name"])
         # print("dominators: ", dominators)
+        # print("dominators: ", dominators)
         df_map = create_dom_front(dominators, block_dict)
         # print("df_map: ", df_map)
 
@@ -532,18 +593,29 @@ if __name__ == "__main__":
         # for block in block_dict:
         #     print(f"block: {block} dominated by: {block_dict[block].dominated_by}")
         dom_graph = inv_map(dominators)     # dom graph has all of the nodes that dominate it
-        print("dom graph: ", dom_graph)
+        # print("dom graph: ", dom_graph)
         # for block in block_dict:
         #     print(f"block: {block} dominated by: {block_dict[block].dominated_by}")
         # print("df map: ", df_map)
 
         # inserts phi based off frontier
+        # for key in dominators:
+        #     dominators[key] = set(dominators[key])
+        dominator_tree = create_dominator_tree(block_dict, func["name"], dom_graph)
+        # print("df_map: ", df_map)
         insert_phi(df_map, var_def_map, variables, block_dict)
 
         for block_name in block_order:
             if block_name not in dom_graph:
                 dom_graph[block_name] = []
-        renaming_pass(block_dict, dom_graph, func["name"], block_order)
+
+        inv_dom_tree = inv_map(dominator_tree)
+        fresh_name_dict = {}
+        for var in var_def_map:
+            fresh_name(var)     #to initalize all values
+        
+        # print("fresh name dict: ", fresh_name_dict)
+        renaming_pass(block_dict, inv_dom_tree, func["name"], block_order)
 
         ########### LOOP INVARIANCE ####################
         # need to be careful that values in one loop don't interfere with anything in a different loop with the same header
@@ -562,5 +634,4 @@ if __name__ == "__main__":
     
     # print(is_ssa(prog))
 
-    # json.dump(prog, sys.stdout, indent=2)
-# 
+    json.dump(prog, sys.stdout, indent=2)
