@@ -1,0 +1,22 @@
+@A(input: int) {
+.b1:
+  v1.0: int = const 1;
+  jmp .B;
+.B:
+  x.0: int = phi __undefined x.1 .b1 .E;
+  v1.1: int = phi v1.0 v1.6 .b1 .E;
+  v1.2: int = const 3;
+  jmp .C;
+.C:
+  x.1: int = phi x.0 x.2 .B .D;
+  v1.3: int = phi v1.2 v1.5 .B .D;
+  v1.4: int = const 4;
+  br v1.4 .D .E;
+.D:
+  v1.5: int = const 5;
+  x.2: int = const 6;
+  jmp .C;
+.E:
+  v1.6: int = const 6;
+  jmp .B;
+}

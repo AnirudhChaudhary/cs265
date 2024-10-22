@@ -154,20 +154,7 @@ def invert_dom_graph(b_dict):
     
     return dominating_map
 
-def dfs(start_name, desired, b_dict):
-    q = [start_name]
-    visited = []
-    while q:
-        block = q.pop(0)
-        if block in visited:
-            continue
-        visited.append(block)
-        if block == desired:
-            break
-        block_obj = b_dict[block]
-        for child in block_obj.children_list:
-            q.append(child.name)
-    return visited
+
 
 def find_path_to(desired, seen, b_dict, curr):
     # print("desired: ", desired)
