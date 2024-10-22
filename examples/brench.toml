@@ -16,3 +16,9 @@ pipeline = [
   "brili -p {args}",
 ]
 
+[runs.ref_ssa]
+pipeline = [
+  "bril2json",
+  "python3 to_ssa.py",
+  "brili -p {args}",
+]

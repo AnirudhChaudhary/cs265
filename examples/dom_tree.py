@@ -5,6 +5,7 @@ import copy
 import json
 import sys
 from is_ssa import is_ssa
+from from_ssa import from_ssa
 class Block():
     def __init__(self, name="", input_table=None, instruction_list=None, children_list=None, output_table=None, parent_list=None):
         self.name = name
@@ -143,28 +144,28 @@ def create_dom_front(dominator_map, b_dict):
     Input: b_dict: dict of {block_name:block_obj}
     Output: df: map of block name to blocks on the frontier
     """
-    # df = {}
-    # for A in b_dict:
-    #     df[A] = []                      # initialize the dominance frontier
-    #     for B in b_dict:
-    #         B_block_obj = b_dict[B]
-    #         if B in dominator_map[A]:   # B can't be in the dominance of A if it is dominated by A
-    #             continue
-
-    #         for b_pred_obj in B_block_obj.parent_list:          # B is in the dom front of A if B has a predecessor that A dominates
-    #             if b_pred_obj.name in dominator_map[A]:
-    #                 df[A].append(B)
-
     df = {}
-    for b_name in b_dict:
-        df[b_name] = []
+    for A in b_dict:
+        df[A] = []                      # initialize the dominance frontier
+        for B in b_dict:
+            B_block_obj = b_dict[B]
+            if B in dominator_map[A] and A != B:   # B can't be in the dominance of A if it is dominated by A
+                continue
+
+            for b_pred_obj in B_block_obj.parent_list:          # B is in the dom front of A if B has a predecessor that A dominates
+                if b_pred_obj.name in dominator_map[A]:
+                    df[A].append(B)
+
+    # df = {}
+    # for b_name in b_dict:
+    #     df[b_name] = []
     
-    for b_name in b_dict:
-        block_obj = b_dict[b_name]
-        parent_list_list = list(block_obj.parent_list) 
-        if len(parent_list_list) > 1:
-            for parent_name in parent_list_list:
-                df[parent_name.name].append(b_name)
+    # for b_name in b_dict:
+    #     block_obj = b_dict[b_name]
+    #     parent_list_list = list(block_obj.parent_list) 
+    #     if len(parent_list_list) > 1:
+    #         for parent_name in parent_list_list:
+    #             df[parent_name.name].append(b_name)
     return df
             
 
@@ -190,11 +191,11 @@ def fresh_name(var_name):
     """
     global fresh_name_dict
     if var_name not in fresh_name_dict:
-        fresh_name_dict[var_name] = -2
+        fresh_name_dict[var_name] = -1
     
     new_num = fresh_name_dict[var_name] + 1
     fresh_name_dict[var_name] += 1
-    return var_name +"_"+str(new_num)
+    return var_name +"."+str(new_num)
 
 def rename(block_name, b_dict, dom_map, stack, block_order):
     """
@@ -255,13 +256,21 @@ def rename(block_name, b_dict, dom_map, stack, block_order):
         for instr in child_block.instruction_list:
             # print("looking at instr: ", instr)
             if "op" in instr and instr["op"] == "phi":
-                i = 0
-                while i < len(instr["labels"]):
-                    if instr["labels"][i] == block_name:
-                        # print("instr: ", instr)
+                if None in instr["labels"]:
+                    i = instr["labels"].index(None)             # find the index of the label that is None in the labels
+                    var_name  = instr["args"][i]                # find out what the variable name is in the corresponding spot in the args
+
+                    # look up the var name in the new stack
+
+                    if var_name in new_stack:                   # if the var name is in the new stack then change the arg
                         instr["args"][i] = new_stack[instr["args"][i]][-1]      #renaming a phi
-                        # print("new instr: ", instr)
-                    i += 1
+                    else:
+                        instr["args"][i] = "__undefined"        # o.w replace the instruction with undefined
+
+                    instr["labels"][i] = block_obj.name
+
+                
+                
         b_dict[child_block.name] = child_block
     
     original_stack = copy.deepcopy(new_stack)
@@ -276,7 +285,7 @@ def rename(block_name, b_dict, dom_map, stack, block_order):
     
 
 
-def insert_phi(dom_front_map, var_def_map, var_list, block_dict):
+def insert_phi(dom_front_map, var_def_map, var_type_map, var_list, block_dict):
     """
     Converts function into ssa format. The function will have blocks that all relate as a CFG together.
     Input:
@@ -306,31 +315,18 @@ def insert_phi(dom_front_map, var_def_map, var_list, block_dict):
             # print("defining block: ", defining_block)
             # print("frontier: ", dom_front_map[defining_block] )
             for block in dom_front_map[defining_block]: # this is the block name
-                new_phi = {"dest": var, "op": "phi", "args":[var], "labels":[defining_block]}
-                # print("block: ", block)
-                # insert phi function into the block
-                # go through the block to make sure the phi function isn't there, and if it is there then add the var and defining block
                 block_obj = block_dict[block]
-                added_phi = False
-                for instr in block_obj.instruction_list:                                        # we go through the instructions to see if we already have a phi defined. If we do and the block is defined alr, then add it to the phi
-                    if "op" in instr and "args" in instr and "labels" in instr:
-                        if instr["op"] == "phi" and var in instr["args"]:
-                            if defining_block not in instr["labels"]:
-                                # print("adding defining block: ", defining_block)
-                                # print("spotted ding ding ding instruction: ", instr)
-                                instr["args"].append(var)
-                                instr["labels"].append(defining_block)
+                # num_parents = len(block_obj.parent_list)
 
-                            # instr["args"] = list(set(instr["args"]))
-                            # instr["labels"] = list(set(instr["labels"]))
+                new_phi = {"dest": var, "op": "phi", "type": var_type_map[var], "args":[var for _ in block_obj.parent_list], "labels":[None for _ in block_obj.parent_list]}
+                added_phi = False
+                for instr in block_obj.instruction_list:
+                    if "dest" in instr and "op" in instr:
+                        if instr["dest"] == var and instr["op"] == "phi":
                             added_phi = True
-                            break   # we can't have multiple phi functions for the same variable
-                
-                if not added_phi:       #if we haven't added phi, then we must not have seen it before and we can add it to the instruction list
-                    # print("added instruction into: ", block)
-                    block_obj.instruction_list.insert(1, new_phi)       # insert at position 1 because usually the label is defined in the first spot
-                    # print("block: ", block)
-                    # print("block instruction list: ", block_obj.instruction_list)
+
+                if not added_phi:
+                    block_obj.instruction_list.insert(1, new_phi)
 
                 block_dict[block] = block_obj   #just making sure the references are properly added to the global map
 
@@ -338,19 +334,19 @@ def insert_phi(dom_front_map, var_def_map, var_list, block_dict):
                 worklist.add(block)
     
     # prune phi
-    for block_name in block_dict:
-        final_instr_list = []
-        block_obj = block_dict[block_name]
-        for instr in block_obj.instruction_list:
-            if "op" in instr and "dest" in instr and "args" in instr and "labels" in instr:
-                if instr["op"] == "phi":
-                    if len(instr["args"]) < 2:
-                        # print("pruned instr")
-                        continue
-            final_instr_list.append(instr)
+    # for block_name in block_dict:
+    #     final_instr_list = []
+    #     block_obj = block_dict[block_name]
+    #     for instr in block_obj.instruction_list:
+    #         if "op" in instr and "dest" in instr and "args" in instr and "labels" in instr:
+    #             if instr["op"] == "phi":
+    #                 if len(instr["args"]) < 2:
+    #                     # print("pruned instr")
+    #                     continue
+    #         final_instr_list.append(instr)
         
-        block_obj.instruction_list = final_instr_list
-        block_dict[block_name] = block_obj
+    #     block_obj.instruction_list = final_instr_list
+    #     block_dict[block_name] = block_obj
 
 def find_dominators(b_dict, top_level):
     cfg = list(b_dict.keys())
@@ -403,29 +399,75 @@ def find_dominators(b_dict, top_level):
     dom_map = dominating_map.copy()
     return dom_map
                 
+def dfs_(start_name, desired, b_dict):
+    """
+    Performs a depth first search on the control flow graph starting from the start block. 
+    Stops when it reaches the desired block.
+    Input: 
+    - start_name: str - the block name to start the search from
+    - desired: str - the block name to stop the search at
+    - b_dict: dict[str, Block] - the block dictionary
+    Output:
+    - list[str] - the list of blocks visited in the order they were visited
+    """
+    q = [start_name]
+    visited = []
+    while q:
+        block = q.pop(0)
+        if block in visited:
+            continue
+        visited.append(block)
+        if block == desired:
+            break
+        block_obj = b_dict[block]
+        for child in block_obj.children_list:
+            q.append(child.name)
+    return visited
 loop_map = {}
+
+def find_loops_starting_from(start_name, b_dict):
+    """
+    Goes through the control flow graph starting from a block and finds all the loops.
+    """
+    loops = []
+    
+    def dfs(block_name, path):
+        if block_name in path:  # Detected a cycle (loop)
+            loop_start_idx = path.index(block_name)
+            loops.append(path[loop_start_idx:])  # Capture the loop portion of the path
+            return
+        
+        path.append(block_name)
+        block_obj = b_dict[block_name]
+        for child in block_obj.children_list:
+            dfs(child.name, path[:])  # Pass a copy of the path to avoid modification
+        path.pop()  # Backtrack after exploring all children
+    
+    dfs(start_name, [])
+    return loops
 def find_loops(b_dict, top_level, be_map):
     """
     Goes through the control flow graph and finds all the loops.
     """
-    # print("back edge map: ", be_map)
+    print("back edge map: ", be_map)
     loops = []
     for header in be_map:
         for latch in be_map[header]:
             loop = set()
-            print(f"header: {header}  latch: {latch}")
+            # print(f"header: {header}  latch: {latch}")
             for b_name in b_dict:
-                print("---------------------------")
-                print("looking at: ", b_name)
+                # print("---------------------------")
+                # print("looking at: ", b_name)
                 reachable = dfs(b_name, latch, b_dict)
-                print("reachable: ", reachable)
+                # print("reachable: ", reachable)
                 if latch not in reachable:
                     continue
                 else:
                     if header in reachable:
                         continue
                     else:
-                        loop.add(b_name) # it is possible for the current node to make it to the end without going through header
+                        for r in reachable:
+                            loop.add(r) # it is possible for the current node to make it to the end without going through header
             loop.add(header)
             loop.add(latch)
             loops.append(loop)
@@ -433,8 +475,8 @@ def find_loops(b_dict, top_level, be_map):
     #         seen = []
     #         desired = latch
     #         loops.extend(find_path_to(desired, seen, b_dict, header))
+    # print("all loops found: ", loops)
     return loops
-    print("all loops found: ", loops)
 
   
 def inv_map(map):
@@ -491,18 +533,27 @@ if __name__ == "__main__":
     # json.dump(total_args, sys.stdout, indent=2)
 
     for func in prog["functions"]:
+        
         instruction_list = []
         instruction_list = func["instrs"]
+        # add entry block to the beginning
+        entry_block_instr = {"label": "b1"}
+        instruction_list.insert(0, entry_block_instr)
+
         if "args" in func:
             func_args = func["args"]
         else:
             func_args = []
         variables = []
         var_def_map = {}
+        var_type_map = {}           # each variable has it's own type
+        fresh_name_dict = {}
         for arg_dict in func_args:
             var_name = arg_dict["name"]
             variables.append(var_name)
             var_def_map[var_name] = {func["name"]}
+            var_type_map[var_name] = arg_dict["type"]
+            fresh_name(var_name)
 
         block_order = []
         curr_label = func["name"]
@@ -519,45 +570,67 @@ if __name__ == "__main__":
                     var_def_map[var_name] = set()     # need to make it a set because we don't want repeats
                     variables.append(var_name)
                 var_def_map[var_name].add(curr_label)
+                var_type_map[var_name] = instr["type"]
+
+
                     
-        # print("var def map: ", var_def_map)
-        block_order = [func["name"]] + block_order
+        # print("var type map: ", var_type_map)
+        
+        # block_order = func["name"] + block_order
+    
 
         # print("block order: ", block_order)
 
         # print("instruction_list: ", instruction_list)
         block_dict = create_blocks(instruction_list, start_name=func["name"]).copy()
+        # for b in block_dict:
+        #     print("block: ", b)
+        #     print("parents: ", block_dict[b].parent_list)
         terminator_list = ["br", "jmp"]
-        # for block_name in block_dict:                                                                           # go through all of the blocks to identify any self referencing ones
-        #     block_obj = block_dict[block_name]                                               # Go through all of the instructions to find the branch instruction
+        # worklist = block_order.copy()
+        # while worklist:                       # go through all of the blocks to identify any self referencing ones
+        #     block_name = worklist.pop(0)
+        #     # print("working on block name: ", block_name)
+        #     block_obj = block_dict[block_name]              # Go through all of the instructions to find the branch instruction
         #     instruction_list = block_obj.instruction_list
-        #     last_instr = instruction_list[-1]                                               # If there is a conditional branch then itll be the last instruction in the list
-        #     if "op" in instr and instr["op"] in terminator_list:
-        #         branching_labels = instr["labels"]
-        #         if block_name in instr["labels"]:
+        #     if len(instruction_list) == 0:              # if the block is empty then we don't need to do anything
+        #         continue
+        #     last_instr = instruction_list[-1]                      # If there is a conditional branch then itll be the last instruction in the list
+        #     # print("last instruction: ", last_instr)
+        #     if "op" in last_instr and last_instr["op"] in terminator_list:
+        #         branching_labels = last_instr["labels"]             # if the last instruction is a branch or jump then it will have a list of labels
+        #         if block_name in last_instr["labels"]:              # if we are self referencing then we need to create an entry block
         #             new_block_name = block_name+"_entry"
-        #             orig_index = block_order.index(block_name)
+        #             orig_index = block_order.index(block_name)          # get the index of the original block
         #             block_order.insert(orig_index, new_block_name)                      # want to preserve ordering of the flow by inserting the entry where the original block used to be
         #             new_entry_block = Block(name=new_block_name)
 
         #             jump_instr = {"op":"jmp", "labels":[block_name]}
-        #             new_entry_block.instruction_list.append(jump_instr.copy())
-        #             new_entry_block.children_list.append(copy.deepcopy(block_dict[block_name]))
-        #             for b_name in block_dict:
-        #                 b_obj = block_dict[block_name]
+        #             new_entry_block.instruction_list.append({"label": new_block_name})
+        #             new_entry_block.instruction_list.append(copy.deepcopy(jump_instr))
+        #             new_entry_block.children_list.add(copy.deepcopy(block_dict[block_name]))
+        #             for b_name in block_dict:               # go through all of the blocks and update if they used the self referencing block
+        #                 b_obj = block_dict[b_name]
         #                 instr_list = b_obj.instruction_list
+        #                 if instr_list == []:
+        #                     continue
         #                 l_inst = instr_list[-1]
+        #                 # print("l_inst: ", l_inst)
+        #                 # print("b_name: ", b_name)
         #                 if "op" in l_inst and l_inst["op"] in terminator_list:
         #                     branching_labels = l_inst["labels"]
         #                     num_labels = enumerate(branching_labels)
+        #                     # print("num labels: ", [l for l in num_labels])
         #                     for label in num_labels:
         #                         if label[1] == block_name:
+        #                             # print("making a change")
         #                             l_inst["labels"][label[0]] = new_block_name
         #                 block_dict[b_name] = b_obj
 
         #             block_dict[new_block_name] = new_entry_block
-
-                                        
+                # else:
+                    # print("didn't self reference block: ", block_name)
+    
 
 
         # original_block_dict = copy.deepcopy(block_dict)
@@ -603,23 +676,61 @@ if __name__ == "__main__":
         #     dominators[key] = set(dominators[key])
         dominator_tree = create_dominator_tree(block_dict, func["name"], dom_graph)
         # print("df_map: ", df_map)
-        insert_phi(df_map, var_def_map, variables, block_dict)
+        insert_phi(df_map, var_def_map, var_type_map, variables, block_dict)
 
         for block_name in block_order:
             if block_name not in dom_graph:
                 dom_graph[block_name] = []
 
         inv_dom_tree = inv_map(dominator_tree)
-        fresh_name_dict = {}
-        for var in var_def_map:
-            fresh_name(var)     #to initalize all values
+        
+        # for arg_dict in func["args"]:
+        #     fresh_name(var)     #to initalize all values
         
         # print("fresh name dict: ", fresh_name_dict)
         renaming_pass(block_dict, inv_dom_tree, func["name"], block_order)
 
         ########### LOOP INVARIANCE ####################
+        def find_back_edges(block_dict, dom_graph):
+            """
+            Finds all of the back edges in a control flow graph. A backedge is between a node to a node that dominates it.
+            """
+            print("dom graph: ", dom_graph)
+            back_edges = {}
+            for block_name in block_dict:           # go through all of the blocks
+                b_obj = block_dict[block_name]
+                for child in b_obj.children_list:     # go through all edges
+                    if block_name in dom_graph[child.name]:       # if the parent dominates the block
+                        if child.name not in back_edges:
+                            back_edges[child.name] = set()
+                        back_edges[child.name].add(block_name)
+            return back_edges
+
+        # print("dominators: ", dominators)
+        back_edge_map = find_back_edges(block_dict, dominators)
+        print("back edge map: ", back_edge_map)
         # need to be careful that values in one loop don't interfere with anything in a different loop with the same header
-        # print(find_loops(block_dict, func["name"], back_edge_map))
+        for header in back_edge_map:
+            for latch in back_edge_map[header]:
+                loops = find_loops_starting_from(header, block_dict)
+
+                print("loops: ", loops)
+
+        # Combine loops into bigger loops by looking at the headers
+        # Few considerations to make:
+        # Nested loops can have one loop be a part of another loop so you can make a big loop out of a small loop BCE + CD -> BCDE
+
+        # A loop can be nested or shared. First check that the instruction is loop invariant to the shared loop
+        # An instruction is loop invariant to the shared loop if 
+
+        # how does it work for shared loops?
+
+        ################ LOOP INVARIANT CODE MOTION ######################
+        # initialize an empty list of loop invariant code
+        # for each instruction, if the args are defined outside the loop OR the args are defined inside the loop and all args are loop invariant and the instruction is deterministic, then add it to the loop_invariant_code list
+
+        # if it passes this check, then go through all the other loops and make sure the 
+        
 
         instruction_list = []
         seen_blocks = []
@@ -633,5 +744,5 @@ if __name__ == "__main__":
         func["instrs"] = instruction_list.copy()
     
     # print(is_ssa(prog))
-
-    json.dump(prog, sys.stdout, indent=2)
+    # print(json.dumps(from_ssa(prog), indent=2, sort_keys=True))
+    # json.dump(prog, sys.stdout, indent=2)

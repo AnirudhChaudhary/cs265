@@ -41,4 +41,7 @@ MAKE SURE TO POP THE STACK
 2. What is wrong with the `pow` bril file?
 
 
+1. A dominance frontier will add a phi with the correct number of arguments so you don't add things from the dominance frontier
+
+
 
