@@ -44,7 +44,6 @@ class Block():
         # return f""" Block with name: {self.name} \n children: {[block.name for block in self.children_list]} \n parents {[block for block in self.parent_list]}"""
         # return f"""Block: {self.name} | Children : {[block.name for block in self.children_list]}"""
         return f"""Block: {self.name}"""
-        return f"""Block: {self.name} | Input : {self.input_table}"""
     
     def ret_block_with_label(self,label):
         """
@@ -155,17 +154,6 @@ def create_dom_front(dominator_map, b_dict):
             for b_pred_obj in B_block_obj.parent_list:          # B is in the dom front of A if B has a predecessor that A dominates
                 if b_pred_obj.name in dominator_map[A]:
                     df[A].append(B)
-
-    # df = {}
-    # for b_name in b_dict:
-    #     df[b_name] = []
-    
-    # for b_name in b_dict:
-    #     block_obj = b_dict[b_name]
-    #     parent_list_list = list(block_obj.parent_list) 
-    #     if len(parent_list_list) > 1:
-    #         for parent_name in parent_list_list:
-    #             df[parent_name.name].append(b_name)
     return df
             
 
@@ -206,10 +194,6 @@ def rename(block_name, b_dict, dom_map, stack, block_order):
     dom_map: dict - {block_name: block_name (that dominates it)}
     stack: dict - {var: most_recent_name} = the stack is utilized for the uses
     """
-    # print("-------------------")
-    # print("block: ", block_name)
-    # print("My block started with this stack: ", stack) 
-    # print("dom map: ", dom_map)
     new_stack = stack.copy()
     block_obj = b_dict[block_name]
     
@@ -218,8 +202,6 @@ def rename(block_name, b_dict, dom_map, stack, block_order):
         # args
         # this instruction's arguments are changed based off whatever the most recent thing on the stack is
         # we do the arguments first and we are confident that this will work because you can't use a variable before initializing it, and when you initalize, the stack will get populated
-        # print("stack: ", stack)
-        # print("orig_instr: ", instr)
         if "args" in instr:                             # this means that we are using the variable, so pull from the stack
             final_args_list = []
             if not("op" in instr and "phi" == instr["op"]):
@@ -228,7 +210,6 @@ def rename(block_name, b_dict, dom_map, stack, block_order):
                         final_args_list.append(new_stack[arg][-1])
                     else:
                         final_args_list.append(arg)
-                # instr["args"] = [stack[arg][-1] for arg in instr["args"] if arg in stack]
                 instr["args"] = final_args_list
         #dest
         # instruction's arguments have to be something fresh that has not been used globally
@@ -277,8 +258,6 @@ def rename(block_name, b_dict, dom_map, stack, block_order):
     # print("After going through instructions -> stack: ", original_stack)
     for block in block_order:
         if block in dom_map[block_name]:
-            # print("checking to make sure that the value didn't change: ", original_stack)
-    # for child_block_name in dom_map[block_name]:
             rename(block, b_dict, dom_map, copy.deepcopy(original_stack), block_order)
 
 
@@ -294,29 +273,18 @@ def insert_phi(dom_front_map, var_def_map, var_type_map, var_list, block_dict):
     var_list: List[variables_names]
     block_dict: (Dict) {block_name: Block()}
     """
-    # print("frontier map: ", dom_front_map)
-    # print("var list: ", var_list)
-    # print("var def map: ", var_def_map)
 
     for var in var_list:
-        # print("--------------")
-        # print("var: ", var)
         worklist = var_def_map[var].copy()     # our defined block list could change as the program goes on so thats why it is in a while loop         #inspired from chatgpt - worklist 
-        # print("starting worklist: ", worklist)
         seen = []
         while worklist:
-            # print("--------------------------")
-            # print("worklist: ", worklist)
             defining_block = worklist.pop()
             if defining_block in seen:
                 continue
             seen.append(defining_block)
-            # print("looking at block: ", defining_block)
-            # print("defining block: ", defining_block)
-            # print("frontier: ", dom_front_map[defining_block] )
+
             for block in dom_front_map[defining_block]: # this is the block name
                 block_obj = block_dict[block]
-                # num_parents = len(block_obj.parent_list)
 
                 new_phi = {"dest": var, "op": "phi", "type": var_type_map[var], "args":[var for _ in block_obj.parent_list], "labels":[None for _ in block_obj.parent_list]}
                 added_phi = False
@@ -332,21 +300,7 @@ def insert_phi(dom_front_map, var_def_map, var_type_map, var_list, block_dict):
 
                 var_def_map[var].add(block)      # this new defined variable 
                 worklist.add(block)
-    
-    # prune phi
-    # for block_name in block_dict:
-    #     final_instr_list = []
-    #     block_obj = block_dict[block_name]
-    #     for instr in block_obj.instruction_list:
-    #         if "op" in instr and "dest" in instr and "args" in instr and "labels" in instr:
-    #             if instr["op"] == "phi":
-    #                 if len(instr["args"]) < 2:
-    #                     # print("pruned instr")
-    #                     continue
-    #         final_instr_list.append(instr)
-        
-    #     block_obj.instruction_list = final_instr_list
-    #     block_dict[block_name] = block_obj
+
 
 def find_dominators(b_dict, top_level):
     cfg = list(b_dict.keys())
@@ -362,28 +316,18 @@ def find_dominators(b_dict, top_level):
     while not fixed_point:
         fixed_point = True
         for block in cfg:
-            # print("----------------")
-            # print("looking at block: ", block)
             if block == top_level:
                 continue
                 
             previous_dom = copy.deepcopy(dom_map[block])
-            # print("previous_dom: ", previous_dom)
+
             if b_dict[block].parent_list:
                 parent_list = list(b_dict[block].parent_list)
                 new_dom = dom_map[parent_list[0].name]
-                # new_dom = b_dict[parent_list[0].name].dominated_by.copy()
-                # print("new_dom start: ", new_dom)
                 for parent in b_dict[block].parent_list:
-                    # parent = b_dict[parent.name]
                     new_dom = new_dom.intersection(dom_map[parent.name])
-                    # print("parents dominated by: ", parent.dominated_by)
-                    # print("looking at parent: ", parent.name)
-                    # print("new_dom: ", new_dom)
                 
                 new_dom.add(block)
-                # print("new_dom after: ", new_dom)
-            
 
             
             if new_dom != previous_dom:
@@ -521,23 +465,13 @@ def create_dominator_tree(block_dict, start_node, dom):
 if __name__ == "__main__":
     # the program comes in from stdin
     prog = json.load(sys.stdin)
-    # print("init program: ", prog)
-    # total_args = 0
-    # for func in prog["functions"]:
-    #     instruction_list = func["instrs"]
-    #     for instr in instruction_list:
-    #         if "args" in instr:
-    #             total_args += len(instr["args"])
-
-    
-    # json.dump(total_args, sys.stdout, indent=2)
 
     for func in prog["functions"]:
         
         instruction_list = []
         instruction_list = func["instrs"]
         # add entry block to the beginning
-        entry_block_instr = {"label": "b1"}
+        entry_block_instr = {"label": "b1"}             # need to add the label for the entry block so that later phi's can find any var that is in the entry block (it can't recognize the function name as a label)
         instruction_list.insert(0, entry_block_instr)
 
         if "args" in func:
@@ -548,7 +482,7 @@ if __name__ == "__main__":
         var_def_map = {}
         var_type_map = {}           # each variable has it's own type
         fresh_name_dict = {}
-        for arg_dict in func_args:
+        for arg_dict in func_args:                  # for each argument TO THE FUNCTION, need to add it to the defined variable and their corresponding types
             var_name = arg_dict["name"]
             variables.append(var_name)
             var_def_map[var_name] = {func["name"]}
@@ -587,6 +521,8 @@ if __name__ == "__main__":
         #     print("block: ", b)
         #     print("parents: ", block_dict[b].parent_list)
         terminator_list = ["br", "jmp"]
+
+        ###### INSERTING PREHEADERS #######
         # worklist = block_order.copy()
         # while worklist:                       # go through all of the blocks to identify any self referencing ones
         #     block_name = worklist.pop(0)
@@ -631,53 +567,14 @@ if __name__ == "__main__":
                 # else:
                     # print("didn't self reference block: ", block_name)
     
-
-
-        # original_block_dict = copy.deepcopy(block_dict)
-        # block_dict = remove_back_edges(original_block_dict, func["name"])
-
-        # for block in block_dict:
-        #     print("name: ", block_dict[block].name)
-        #     # print("parents: ", block_dict[block].parent_list)
-        #     print("parent set: ", set(block_dict[block].parent_list))
-        #     # print("children: ", block_dict[block].children_list)
-        #     print("children set: ", set(block_dict[block].children_list))
-        
-        # fixed_point_analysis(block_dict, block_order[-1])       # finds the dominance relation for the blocks
-        # for block in block_dict:
-        #     print(f"block {block} dominated by: ", block_dict[block].dom)
-        # dominators = invert_dom_graph(block_dict)
-        # dominance_transfer_analysis(block_dict, "B")
-
-        # for b in block_dict:
-        #     print(f"b: {b} dom: {block_dict[b].dom}")
         dominators = find_dominators(block_dict, func["name"])
-        # print("dominators: ", dominators)
-        # print("dominators: ", dominators)
-        df_map = create_dom_front(dominators, block_dict)
-        # print("df_map: ", df_map)
 
-        # for key in back_edge_map:
-        #     back_edge_map[key] = list(back_edge_map[key])
-        # print("df map: ", df_map)
-        # print("frontier map: ", df_map)
-        # print(find_dominating_map(block_dict))
-        # find_imm_domin(block_dict, func["name"])
-        # for block in block_dict:
-        #     print(f"block: {block} dominated by: {block_dict[block].dominated_by}")
+        df_map = create_dom_front(dominators, block_dict)
+
         dom_graph = inv_map(dominators)     # dom graph has all of the nodes that dominate it
 
-        # print("dom graph: ", dom_graph)
-        # for block in block_dict:
-        #     print(f"block: {block} dominated by: {block_dict[block].dominated_by}")
-        # print("df map: ", df_map)
-
-        # inserts phi based off frontier
-        # for key in dominators:
-        #     dominators[key] = set(dominators[key])
         dominator_tree = create_dominator_tree(block_dict, func["name"], dom_graph)
-        # print("dominator tree: ", dominator_tree)
-        # print("df_map: ", df_map)
+
         insert_phi(df_map, var_def_map, var_type_map, variables, block_dict)
 
         for block_name in block_order:
@@ -685,12 +582,7 @@ if __name__ == "__main__":
                 dom_graph[block_name] = []
 
         inv_dom_tree = inv_map(dominator_tree)
-        # print("inv dom tree: ", inv_dom_tree)
         
-        # for arg_dict in func["args"]:
-        #     fresh_name(var)     #to initalize all values
-        
-        # print("fresh name dict: ", fresh_name_dict)
         renaming_pass(block_dict, inv_dom_tree, func["name"], block_order)
 
         ########### LOOP INVARIANCE ####################
@@ -815,22 +707,14 @@ if __name__ == "__main__":
             # print("loop invariant code: ", loop_invariant_code)
             if len(all_final_loops) == 1:
                 loop = all_final_loops[0]
-                # preheader = dominator_tree[loop[0]][0]
                 header = loop[0]
-                # print("header: ", header)
                 header_obj = block_dict[header]
-                # print("header obj parents: ", header_obj.parent_list)
                 parent_set = set([x.name for x in header_obj.parent_list]) #set(header_obj.parent_list)
-                # print("parent set: ", parent_set)
                 dom_set = set(dom_graph[header])
-                # print("dom set: ", dom_set)
                 common = parent_set & dom_set
-                # print("common: ", common)
                 common = list(common)
                 if len(common) == 1:         #if the header only has one parent
-                    # print("found one parent!")
                     pre_header = common[0]
-                    # print("pre header: ", pre_header)
                     b_obj = block_dict[pre_header]
                     for inv in loop_invariant_code:
                         len_b_obj = len(b_obj.instruction_list)
