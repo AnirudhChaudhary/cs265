@@ -12,13 +12,13 @@ pipeline = [
 [runs.ssa]
 pipeline = [
   "bril2json",
-  "python3 dom_tree.py",
+  "python3 to_ssa_ani.py",
   "brili -p {args}",
 ]
 
 [runs.ref_ssa]
 pipeline = [
   "bril2json",
-  "python3 to_ssa.py",
+  "python3 ssa_w_loops_ani.py",
   "brili -p {args}",
 ]

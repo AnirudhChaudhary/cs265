@@ -709,116 +709,122 @@ if __name__ == "__main__":
             return back_edges
 
         # print("dominators: ", dominators)
-        back_edge_map = find_back_edges(block_dict, dominators)
-        # print("back edge map: ", back_edge_map)
-        # need to be careful that values in one loop don't interfere with anything in a different loop with the same header
-        loops =[]
-        for header in back_edge_map:
-            for latch in back_edge_map[header]:
-                loops = find_loops_starting_from(header, block_dict)
+        # back_edge_map = find_back_edges(block_dict, dominators)
+        # # print("back edge map: ", back_edge_map)
+        # # need to be careful that values in one loop don't interfere with anything in a different loop with the same header
+        # loops =[]
+        # for header in back_edge_map:
+        #     for latch in back_edge_map[header]:
+        #         loops = find_loops_starting_from(header, block_dict)
 
-                # print("loops: ", loops)
+        #         # print("loops: ", loops)
 
-        # Combine loops into bigger loops by looking at the headers
-        # Few considerations to make:
-        # Nested loops can have one loop be a part of another loop so you can make a big loop out of a small loop BCE + CD -> BCDE
-        all_final_loops = []
-        if loops:
-            for loop in loops:                                          # go through all loops
-                final_loop = loop.copy()                                # we can't become smaller than the original loop, we are looking to add more to the loop
-                starting_node = loop[0]                                 
-                for nested_loop in loops:
-                    nested_loop_start = nested_loop[0]
-                    if nested_loop_start in loop and nested_loop_start != starting_node:        # we want all nested loops to be included so if the nested loop header is in the loop, then add. OW if nested_loop_start == starting node then both share the same header and are separate loops
-                        node_index = loop.index(nested_loop_start)
-                        final_loop = final_loop[:node_index] + nested_loop + final_loop[node_index+1:]
-                        # final_loop = final_loop.union(nested_loop)
-                all_final_loops.append(final_loop)
+        # # Combine loops into bigger loops by looking at the headers
+        # # Few considerations to make:
+        # # Nested loops can have one loop be a part of another loop so you can make a big loop out of a small loop BCE + CD -> BCDE
+        # all_final_loops = []
+        # if loops:
+        #     for loop in loops:                                          # go through all loops
+        #         final_loop = loop.copy()                                # we can't become smaller than the original loop, we are looking to add more to the loop
+        #         starting_node = loop[0]                                 
+        #         for nested_loop in loops:
+        #             nested_loop_start = nested_loop[0]
+        #             if nested_loop_start in loop and nested_loop_start != starting_node:        # we want all nested loops to be included so if the nested loop header is in the loop, then add. OW if nested_loop_start == starting node then both share the same header and are separate loops
+        #                 node_index = loop.index(nested_loop_start)
+        #                 final_loop = final_loop[:node_index] + nested_loop + final_loop[node_index+1:]
+        #                 # final_loop = final_loop.union(nested_loop)
+        #         all_final_loops.append(final_loop)
 
-            # print("all final loops: ", all_final_loops)
-            # A loop can be nested or shared. First check that the instruction is loop invariant to the shared loop
-            # An instruction is loop invariant to the shared loop if 
+        #     # print("all final loops: ", all_final_loops)
+        #     # A loop can be nested or shared. First check that the instruction is loop invariant to the shared loop
+        #     # An instruction is loop invariant to the shared loop if 
 
-            # how does it work for shared loops?
+        #     # how does it work for shared loops?
 
-            ################ LOOP INVARIANT CODE MOTION ######################
-            # initialize an empty list of loop invariant code
+        #     ################ LOOP INVARIANT CODE MOTION ######################
+        #     # initialize an empty list of loop invariant code
 
-            loop_var_def_map = {}
-            for loop in all_final_loops:
-                header = loop[0]
-                for block_name in loop:
-                    b_obj = block_dict[block_name]
-                    for instruction in b_obj.instruction_list:
-                        if "dest" in instruction:
-                            if header not in loop_var_def_map:
-                                loop_var_def_map[header] = []
-                            loop_var_def_map[header].append(instruction["dest"])
+        #     loop_var_def_map = {}
+        #     for loop in all_final_loops:
+        #         header = loop[0]
+        #         for block_name in loop:
+        #             b_obj = block_dict[block_name]
+        #             for instruction in b_obj.instruction_list:
+        #                 if "dest" in instruction:
+        #                     if header not in loop_var_def_map:
+        #                         loop_var_def_map[header] = []
+        #                     loop_var_def_map[header].append(instruction["dest"])
             
-            # print("loop var def map: ", loop_var_def_map)
-            deterministic_ops = ["add", "sub", "mul", "id", "const"]
-            # for each instruction, if the args are defined outside the loop OR the args are defined inside the loop and all args are loop invariant and the instruction is deterministic, then add it to the loop_invariant_code list
-            # order all_final_loops based on length of loop
+        #     # print("loop var def map: ", loop_var_def_map)
+        #     deterministic_ops = ["add", "sub", "mul", "id", "const"]
+        #     # for each instruction, if the args are defined outside the loop OR the args are defined inside the loop and all args are loop invariant and the instruction is deterministic, then add it to the loop_invariant_code list
+        #     # order all_final_loops based on length of loop
             
-            # want to start from the smallest loop and go to the largest
-            all_final_loops.sort(key=len)
+        #     # want to start from the smallest loop and go to the largest
+        #     all_final_loops.sort(key=len)
 
-            for loop in all_final_loops:        # go through all of the loops
-                loop_invariant_code = []    
-                loop_invariant_vars = []
-                header = loop[0]
-                found_loop_invariant = True
-                while found_loop_invariant:     #iterate to fixed point
-                    found_loop_invariant = False
-                    for block_name in loop:      #go through all of the blocks in the loop looking for an invariant instruction
-                        b_obj = block_dict[block_name]
-                        for instruction in b_obj.instruction_list:     # go through all of the instructions
-                            # print("instruction: ", instruction)
-                            if "op" in instruction and instruction["op"] == "const":
-                                loop_invariant_code.append(instruction)
-                                loop_invariant_vars.append(instruction["dest"])
-                                continue
-                            if "args" in instruction and "op" in instruction:
-                                if instruction["op"] not in deterministic_ops:
-                                    continue
-                                add_loop_invariant = False
-                                if len(instruction["args"]) == 1:
-                                    if instruction["args"][0] not in loop_var_def_map[header]:    # if the arg is not defined in the loop and the instruction is not already in the loop invariant code then add it, should not pass the next time bc instruction is already in
-                                        add_loop_invariant = True
-                                    else:
-                                        if (instruction["args"][0] in loop_invariant_vars):
-                                            add_loop_invariant = True
-                                else:
-                                    add_loop_invariant = True
-                                    for arg in instruction["args"]:
-                                        if arg in loop_var_def_map[header]:    # if the arg is not defined in the loop and the instruction is not already in the loop invariant code then add it, should not pass the next time bc instruction is already in
-                                            add_loop_invariant = False
-                                            break
-                                        else:   # this means that the arg is defined in the loop
-                                            if (arg not in loop_invariant_vars):
-                                                add_loop_invariant = False
-                                                break
-                                if add_loop_invariant:
-                                    if instruction not in loop_invariant_code:
-                                        loop_invariant_code.append(instruction)
-                                        loop_invariant_vars.append(instruction["dest"])
-                                        for arg in instruction["args"]:
-                                            if arg not in loop_invariant_vars:
-                                                loop_invariant_vars.append(arg)
-                                        found_loop_invariant = True
+        #     for loop in all_final_loops:        # go through all of the loops
+        #         loop_invariant_code = []    
+        #         loop_invariant_vars = []
+        #         header = loop[0]
+        #         found_loop_invariant = True
+        #         while found_loop_invariant:     #iterate to fixed point
+        #             found_loop_invariant = False
+        #             for block_name in loop:      #go through all of the blocks in the loop looking for an invariant instruction
+        #                 b_obj = block_dict[block_name]
+        #                 for instruction in b_obj.instruction_list:     # go through all of the instructions
+        #                     # print("instruction: ", instruction)
+        #                     if "op" in instruction and instruction["op"] == "const":
+        #                         loop_invariant_code.append(instruction)
+        #                         loop_invariant_vars.append(instruction["dest"])
+        #                         continue
+        #                     if "args" in instruction and "op" in instruction:
+        #                         if instruction["op"] not in deterministic_ops:
+        #                             continue
+        #                         add_loop_invariant = False
+        #                         if len(instruction["args"]) == 1:
+        #                             if instruction["args"][0] not in loop_var_def_map[header]:    # if the arg is not defined in the loop and the instruction is not already in the loop invariant code then add it, should not pass the next time bc instruction is already in
+        #                                 add_loop_invariant = True
+        #                             else:
+        #                                 if (instruction["args"][0] in loop_invariant_vars):
+        #                                     add_loop_invariant = True
+        #                         else:
+        #                             add_loop_invariant = True
+        #                             for arg in instruction["args"]:
+        #                                 if arg in loop_var_def_map[header]:    # if the arg is not defined in the loop and the instruction is not already in the loop invariant code then add it, should not pass the next time bc instruction is already in
+        #                                     add_loop_invariant = False
+        #                                     break
+        #                                 else:   # this means that the arg is defined in the loop
+        #                                     if (arg not in loop_invariant_vars):
+        #                                         add_loop_invariant = False
+        #                                         break
+        #                         if add_loop_invariant:
+        #                             if instruction not in loop_invariant_code:
+        #                                 loop_invariant_code.append(instruction)
+        #                                 loop_invariant_vars.append(instruction["dest"])
+        #                                 for arg in instruction["args"]:
+        #                                     if arg not in loop_invariant_vars:
+        #                                         loop_invariant_vars.append(arg)
+        #                                 found_loop_invariant = True
 
-                # print("loop invariant code: ", loop_invariant_code)
-                # print("loop invariant vars: ", loop_invariant_vars)
-                # if we have a loop invariant code then we can do code motion on it
-            # if it passes this check, then go through all the other loops and make sure the 
+        #         # print("loop invariant code: ", loop_invariant_code)
+        #         # print("loop invariant vars: ", loop_invariant_vars)
+        #         # if we have a loop invariant code then we can do code motion on it
+        #     # if it passes this check, then go through all the other loops and make sure the 
 
-            if len(all_final_loops) == 1:
-                loop = all_final_loops[0]
-                preheader = dominator_tree[loop[0]][0]
-                b_obj = block_dict[preheader]
-                for inv in loop_invariant_code:
-                    b_obj.instruction_list.insert(0, inv)
-                block_dict[preheader] = b_obj
+        #     if len(all_final_loops) == 1:
+        #         loop = all_final_loops[0]
+        #         preheader = dominator_tree[loop[0]][0]
+        #         b_obj = block_dict[preheader]
+        #         for inv in loop_invariant_code:
+        #             b_obj.instruction_list.insert(0, inv)
+        #             for node in loop:
+        #                 node_obj = block_dict[node]
+        #                 if inv in node_obj.instruction_list:
+        #                     node_obj.instruction_list.remove(inv)
+        #                 block_dict[node] = node_obj
+
+
 
         
 
