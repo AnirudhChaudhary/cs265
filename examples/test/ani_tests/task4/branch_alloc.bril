@@ -1,0 +1,21 @@
+@main {
+  v: int = const 4;
+  o1: int = const 1;
+
+  v4: bool = eq v o1;
+  br v4 .if .else;
+
+.if:
+  a: int = const 1;
+  ap: ptr<bool> = alloc a;
+  jmp .end;
+.else:
+  a: int = const 2;
+  ap: ptr<bool> = alloc b;
+
+.end:
+  b: int = id ap;
+
+  print b;
+  free ap;
+}

@@ -21,6 +21,10 @@ class Block():
         self.out_ = []
         self.dom = {self.name}   # all the blocks that dominate this block; trivially a block is dominated by itself
         self.dominated_by = set() # extended, this is all of the blocks above that dominate this block
+        self.in_var_mem = {}       # key is variable, value is memory locations that are present at the start of the block
+        # in_var_mem is going to be used for the analysis later 
+        self.out_var_mem = {}      # key is variable, value is memory locations that are present at the end of the block
+        # out_var_mem is going to be used for to get to fixed point 
 
     def add_instr(self, instr):
         self.instruction_list.append(copy.deepcopy(instr))
@@ -280,11 +284,6 @@ def rename(block_name, b_dict, dom_map, stack, block_order):
             # print("checking to make sure that the value didn't change: ", original_stack)
     # for child_block_name in dom_map[block_name]:
             rename(block, b_dict, dom_map, copy.deepcopy(original_stack), block_order)
-
-
-    
-
-
 def insert_phi(dom_front_map, var_def_map, var_type_map, var_list, block_dict):
     """
     Converts function into ssa format. The function will have blocks that all relate as a CFG together.
@@ -477,6 +476,7 @@ def find_loops(b_dict, top_level, be_map):
     #         loops.extend(find_path_to(desired, seen, b_dict, header))
     # print("all loops found: ", loops)
     return loops
+
 def inv_map(map):
     dominating_map = {}
     for b_name in map:
@@ -514,318 +514,140 @@ def create_dominator_tree(block_dict, start_node, dom):
 
     return parent
 
+def meet(parent_list, block_dict):
+    """
+    Go through the parent list and meet on the parents to get the new block dictionary
+    """
+    met_vars = {}
+    for parent in parent_list:
+        out_var_mem_dict = parent.out_var_mem
+        for var in out_var_mem_dict:      # out var mem is a {}
+            if var not in met_vars:
+                met_vars[var] = set()
+            
+            met_vars[var] = met_vars[var].union(out_var_mem_dict[var])
 
-    
+    return met_vars
 if __name__ == "__main__":
     # the program comes in from stdin
     prog = json.load(sys.stdin)
-    # print("init program: ", prog)
-    # total_args = 0
-    # for func in prog["functions"]:
-    #     instruction_list = func["instrs"]
-    #     for instr in instruction_list:
-    #         if "args" in instr:
-    #             total_args += len(instr["args"])
-
-    
-    # json.dump(total_args, sys.stdout, indent=2)
 
     for func in prog["functions"]:
-        
         instruction_list = []
         instruction_list = func["instrs"]
-        # add entry block to the beginning
+
+        block_order = []
+        
+
+        
+
         entry_block_instr = {"label": "b1"}
         instruction_list.insert(0, entry_block_instr)
 
-        if "args" in func:
-            func_args = func["args"]
-        else:
-            func_args = []
-        variables = []
-        var_def_map = {}
-        var_type_map = {}           # each variable has it's own type
-        fresh_name_dict = {}
-        for arg_dict in func_args:
-            var_name = arg_dict["name"]
-            variables.append(var_name)
-            var_def_map[var_name] = {func["name"]}
-            var_type_map[var_name] = arg_dict["type"]
-            fresh_name(var_name)
-
-        block_order = []
-        curr_label = func["name"]
-
-        # Create variable definition map which will be used for inserting phis
+        block_dict = create_blocks(instruction_list, start_name=func["name"]).copy()
         for instr in instruction_list:
             if "label" in instr:
-                curr_label = instr["label"]
-                block_order.append(curr_label)
+                block_order.append(instr["label"])
+        block_order = [func["name"]] + block_order
+        print("block order: ", block_order)
 
-            if "dest" in instr:
-                var_name = instr["dest"]
-                if var_name not in var_def_map:
-                    var_def_map[var_name] = set()     # need to make it a set because we don't want repeats
-                    variables.append(var_name)
-                var_def_map[var_name].add(curr_label)
-                var_type_map[var_name] = instr["type"]
+        curr_label = func["name"]
+
+        # state
+        var_type_map = {}
+        curr_mem_loc = 0        # this helps us find out the next available memory location & tells us what's been allocated alr
+
+        if "args" in func:
+            for arg in func["args"]:                                # need to have this first in case any var in the function uses the func arg
+                var_type_map[arg] = set([i for i in range(1000)])   # conservative approximation for all memory addresses
+        
+        block_dict[curr_label].in_var_mem = var_type_map.copy()
+
+        # go through all of the instructions and find all of the variables
+        # direction - forward
+        fixed_point = False
+        while not fixed_point:
+            fixed_point = True
+            for block in block_dict:
+                print("looking at block: ", block)
+                block_obj = block_dict[block]
+
+                # do a meet on the parents, which is going to be this block's starting "state"
+                print("blocks parents: ", block_obj.parent_list)
+                starting_state = meet(block_obj.parent_list, block_dict)
+                print("starting state: ", starting_state)
+                block_obj.in_var_mem = starting_state.copy()
+                for instr in block_obj.instruction_list:
+                    if "dest" in instr:
+                        if instr["dest"] not in starting_state:
+                            starting_state[instr["dest"]] = set()
+
+
+                        # alloc
+                        if "op" in instr and instr["op"] == "alloc":
+                            dest = instr["dest"]
+                            start_len = len(starting_state[dest])
+                            print("starting_state: ", starting_state[dest])
+                            starting_state[dest].add(curr_mem_loc)     # this add the current memory location to the map
+                            print("starting_state after: ", starting_state[dest])
+                            end_len = len(starting_state[dest])
+
+                            if start_len != end_len:
+                                curr_mem_loc += 1                       # increment the current memory location
+                                fixed_point = False
+
+                        # id
+                        # if we have an "id" operator, then the destination is the new thing and the arg are the things we add
+                        if "op" in instr and instr["op"] == "id":
+                            dest = instr["dest"]        # it should have a destination because it's an id operator
+                            instr_arg = instr["args"][0]
+                            existing_mem_loc = starting_state[instr_arg]
+                            # start_len = starting_state[dest]
+                            starting_state[dest].add(existing_mem_loc)     # perhaps a reference issue here?
+
+                            # end_len = starting_state[dest]
+                            # if start_len != end_len:
+                            #     curr_mem_loc += 1
+                            #     fixed_point = False
+
+                        if "op" in instr and instr["op"] == "ptradd":
+                            dest = instr["dest"]        # it should have a destination because it's an id operator
+                            (ptr_arg, offset) = instr["args"]
+                            existing_mem_loc = starting_state[ptr_arg]
+                            # start_len = starting_state[dest]
+                            print("in ptradd")
+                            starting_state[dest] = starting_state[dest].union(existing_mem_loc)     # perhaps a reference issue here?
+                            # end_len = starting_state[dest]
+                            # if start_len != end_len:
+                            #     curr_mem_loc += 1
+                            #     fixed_point = False
+
+                        # load
+                        if "op" in instr and instr["op"] == "load":
+                            dest = instr["dest"]
+                            print("in load")
+                            print(f"len starting state for var {dest} is {len(starting_state[dest])}")
+                            print("curr_mem_loc: ", curr_mem_loc)
+                            if len(starting_state[dest]) != curr_mem_loc:
+                                starting_state[dest] = set([i for i in range(curr_mem_loc)])    # curr_mem_loc has all of the allocated memory locations
+                                fixed_point = False
+                
+                block_obj.out_var_mem = starting_state
+                block_dict[block] = block_obj
+            # store
+            # nothing changes
+            # break
+            if curr_mem_loc > 50:
+                break
+
+        for block in block_dict:
+            print("block name: ", block)
+            print("mem locations: ", block_dict[block].out_var_mem)
+        ### the analysis will give the memory pointed locations for all the variables
+        ### from here we go back through and we can change the occurences
 
 
                     
-        # print("var type map: ", var_type_map)
-        
-        # block_order = func["name"] + block_order
-    
-
-        # print("block order: ", block_order)
-
-        # print("instruction_list: ", instruction_list)
-        block_dict = create_blocks(instruction_list, start_name=func["name"]).copy()
-        # for b in block_dict:
-        #     print("block: ", b)
-        #     print("parents: ", block_dict[b].parent_list)
-        terminator_list = ["br", "jmp"]
-        # worklist = block_order.copy()
-        # while worklist:                       # go through all of the blocks to identify any self referencing ones
-        #     block_name = worklist.pop(0)
-        #     # print("working on block name: ", block_name)
-        #     block_obj = block_dict[block_name]              # Go through all of the instructions to find the branch instruction
-        #     instruction_list = block_obj.instruction_list
-        #     if len(instruction_list) == 0:              # if the block is empty then we don't need to do anything
-        #         continue
-        #     last_instr = instruction_list[-1]                      # If there is a conditional branch then itll be the last instruction in the list
-        #     # print("last instruction: ", last_instr)
-        #     if "op" in last_instr and last_instr["op"] in terminator_list:
-        #         branching_labels = last_instr["labels"]             # if the last instruction is a branch or jump then it will have a list of labels
-        #         if block_name in last_instr["labels"]:              # if we are self referencing then we need to create an entry block
-        #             new_block_name = block_name+"_entry"
-        #             orig_index = block_order.index(block_name)          # get the index of the original block
-        #             block_order.insert(orig_index, new_block_name)                      # want to preserve ordering of the flow by inserting the entry where the original block used to be
-        #             new_entry_block = Block(name=new_block_name)
-
-        #             jump_instr = {"op":"jmp", "labels":[block_name]}
-        #             new_entry_block.instruction_list.append({"label": new_block_name})
-        #             new_entry_block.instruction_list.append(copy.deepcopy(jump_instr))
-        #             new_entry_block.children_list.add(copy.deepcopy(block_dict[block_name]))
-        #             for b_name in block_dict:               # go through all of the blocks and update if they used the self referencing block
-        #                 b_obj = block_dict[b_name]
-        #                 instr_list = b_obj.instruction_list
-        #                 if instr_list == []:
-        #                     continue
-        #                 l_inst = instr_list[-1]
-        #                 # print("l_inst: ", l_inst)
-        #                 # print("b_name: ", b_name)
-        #                 if "op" in l_inst and l_inst["op"] in terminator_list:
-        #                     branching_labels = l_inst["labels"]
-        #                     num_labels = enumerate(branching_labels)
-        #                     # print("num labels: ", [l for l in num_labels])
-        #                     for label in num_labels:
-        #                         if label[1] == block_name:
-        #                             # print("making a change")
-        #                             l_inst["labels"][label[0]] = new_block_name
-        #                 block_dict[b_name] = b_obj
-
-        #             block_dict[new_block_name] = new_entry_block
-                # else:
-                    # print("didn't self reference block: ", block_name)
-    
-
-
-        # original_block_dict = copy.deepcopy(block_dict)
-        # block_dict = remove_back_edges(original_block_dict, func["name"])
-
-        # for block in block_dict:
-        #     print("name: ", block_dict[block].name)
-        #     # print("parents: ", block_dict[block].parent_list)
-        #     print("parent set: ", set(block_dict[block].parent_list))
-        #     # print("children: ", block_dict[block].children_list)
-        #     print("children set: ", set(block_dict[block].children_list))
-        
-        # fixed_point_analysis(block_dict, block_order[-1])       # finds the dominance relation for the blocks
-        # for block in block_dict:
-        #     print(f"block {block} dominated by: ", block_dict[block].dom)
-        # dominators = invert_dom_graph(block_dict)
-        # dominance_transfer_analysis(block_dict, "B")
-
-        # for b in block_dict:
-        #     print(f"b: {b} dom: {block_dict[b].dom}")
-        dominators = find_dominators(block_dict, func["name"])
-        # print("dominators: ", dominators)
-        # print("dominators: ", dominators)
-        df_map = create_dom_front(dominators, block_dict)
-        # print("df_map: ", df_map)
-
-        # for key in back_edge_map:
-        #     back_edge_map[key] = list(back_edge_map[key])
-        # print("df map: ", df_map)
-        # print("frontier map: ", df_map)
-        # print(find_dominating_map(block_dict))
-        # find_imm_domin(block_dict, func["name"])
-        # for block in block_dict:
-        #     print(f"block: {block} dominated by: {block_dict[block].dominated_by}")
-        dom_graph = inv_map(dominators)     # dom graph has all of the nodes that dominate it
-        # print("dom graph: ", dom_graph)
-        # for block in block_dict:
-        #     print(f"block: {block} dominated by: {block_dict[block].dominated_by}")
-        # print("df map: ", df_map)
-
-        # inserts phi based off frontier
-        # for key in dominators:
-        #     dominators[key] = set(dominators[key])
-        dominator_tree = create_dominator_tree(block_dict, func["name"], dom_graph)
-        # print("dominator tree: ", dominator_tree)
-        # print("df_map: ", df_map)
-        insert_phi(df_map, var_def_map, var_type_map, variables, block_dict)
-
-        for block_name in block_order:
-            if block_name not in dom_graph:
-                dom_graph[block_name] = []
-
-        inv_dom_tree = inv_map(dominator_tree)
-        # print("inv dom tree: ", inv_dom_tree)
-        
-        # for arg_dict in func["args"]:
-        #     fresh_name(var)     #to initalize all values
-        
-        # print("fresh name dict: ", fresh_name_dict)
-        renaming_pass(block_dict, inv_dom_tree, func["name"], block_order)
-
-        ########### LOOP INVARIANCE ####################
-        def find_back_edges(block_dict, dom_graph):
-            """
-            Finds all of the back edges in a control flow graph. A backedge is between a node to a node that dominates it.
-            """
-            # print("dom graph: ", dom_graph)
-            back_edges = {}
-            for block_name in block_dict:           # go through all of the blocks
-                b_obj = block_dict[block_name]
-                for child in b_obj.children_list:     # go through all edges
-                    if block_name in dom_graph[child.name]:       # if the parent dominates the block
-                        if child.name not in back_edges:
-                            back_edges[child.name] = set()
-                        back_edges[child.name].add(block_name)
-            return back_edges
-
-        # print("dominators: ", dominators)
-        # back_edge_map = find_back_edges(block_dict, dominators)
-        # # print("back edge map: ", back_edge_map)
-        # # need to be careful that values in one loop don't interfere with anything in a different loop with the same header
-        # loops =[]
-        # for header in back_edge_map:
-        #     for latch in back_edge_map[header]:
-        #         loops = find_loops_starting_from(header, block_dict)
-
-        #         # print("loops: ", loops)
-
-        # # Combine loops into bigger loops by looking at the headers
-        # # Few considerations to make:
-        # # Nested loops can have one loop be a part of another loop so you can make a big loop out of a small loop BCE + CD -> BCDE
-        # all_final_loops = []
-        # if loops:
-        #     for loop in loops:                                          # go through all loops
-        #         final_loop = loop.copy()                                # we can't become smaller than the original loop, we are looking to add more to the loop
-        #         starting_node = loop[0]                                 
-        #         for nested_loop in loops:
-        #             nested_loop_start = nested_loop[0]
-        #             if nested_loop_start in loop and nested_loop_start != starting_node:        # we want all nested loops to be included so if the nested loop header is in the loop, then add. OW if nested_loop_start == starting node then both share the same header and are separate loops
-        #                 node_index = loop.index(nested_loop_start)
-        #                 final_loop = final_loop[:node_index] + nested_loop + final_loop[node_index+1:]
-        #                 # final_loop = final_loop.union(nested_loop)
-        #         all_final_loops.append(final_loop)
-
-        #     # print("all final loops: ", all_final_loops)
-        #     # A loop can be nested or shared. First check that the instruction is loop invariant to the shared loop
-        #     # An instruction is loop invariant to the shared loop if 
-
-        #     # how does it work for shared loops?
-
-        #     ################ LOOP INVARIANT CODE MOTION ######################
-        #     # initialize an empty list of loop invariant code
-
-        #     loop_var_def_map = {}
-        #     for loop in all_final_loops:
-        #         header = loop[0]
-        #         for block_name in loop:
-        #             b_obj = block_dict[block_name]
-        #             for instruction in b_obj.instruction_list:
-        #                 if "dest" in instruction:
-        #                     if header not in loop_var_def_map:
-        #                         loop_var_def_map[header] = []
-        #                     loop_var_def_map[header].append(instruction["dest"])
-            
-        #     # print("loop var def map: ", loop_var_def_map)
-        #     deterministic_ops = ["add", "sub", "mul", "id", "const"]
-        #     # for each instruction, if the args are defined outside the loop OR the args are defined inside the loop and all args are loop invariant and the instruction is deterministic, then add it to the loop_invariant_code list
-        #     # order all_final_loops based on length of loop
-            
-        #     # want to start from the smallest loop and go to the largest
-        #     all_final_loops.sort(key=len)
-
-        #     for loop in all_final_loops:        # go through all of the loops
-        #         loop_invariant_code = []    
-        #         loop_invariant_vars = []
-        #         header = loop[0]
-        #         found_loop_invariant = True
-        #         while found_loop_invariant:     #iterate to fixed point
-        #             found_loop_invariant = False
-        #             for block_name in loop:      #go through all of the blocks in the loop looking for an invariant instruction
-        #                 b_obj = block_dict[block_name]
-        #                 for instruction in b_obj.instruction_list:     # go through all of the instructions
-        #                     # print("instruction: ", instruction)
-        #                     if "op" in instruction and instruction["op"] == "const":
-        #                         loop_invariant_code.append(instruction)
-        #                         loop_invariant_vars.append(instruction["dest"])
-        #                         continue
-        #                     if "args" in instruction and "op" in instruction:
-        #                         if instruction["op"] not in deterministic_ops:
-        #                             continue
-        #                         add_loop_invariant = False
-        #                         if len(instruction["args"]) == 1:
-        #                             if instruction["args"][0] not in loop_var_def_map[header]:    # if the arg is not defined in the loop and the instruction is not already in the loop invariant code then add it, should not pass the next time bc instruction is already in
-        #                                 add_loop_invariant = True
-        #                             else:
-        #                                 if (instruction["args"][0] in loop_invariant_vars):
-        #                                     add_loop_invariant = True
-        #                         else:
-        #                             add_loop_invariant = True
-        #                             for arg in instruction["args"]:
-        #                                 if arg in loop_var_def_map[header]:    # if the arg is not defined in the loop and the instruction is not already in the loop invariant code then add it, should not pass the next time bc instruction is already in
-        #                                     add_loop_invariant = False
-        #                                     break
-        #                                 else:   # this means that the arg is defined in the loop
-        #                                     if (arg not in loop_invariant_vars):
-        #                                         add_loop_invariant = False
-        #                                         break
-        #                         if add_loop_invariant:
-        #                             if instruction not in loop_invariant_code:
-        #                                 loop_invariant_code.append(instruction)
-        #                                 loop_invariant_vars.append(instruction["dest"])
-        #                                 for arg in instruction["args"]:
-        #                                     if arg not in loop_invariant_vars:
-        #                                         loop_invariant_vars.append(arg)
-        #                                 found_loop_invariant = True
-
-        #         # print("loop invariant code: ", loop_invariant_code)
-        #         # print("loop invariant vars: ", loop_invariant_vars)
-        #         # if we have a loop invariant code then we can do code motion on it
-        #     # if it passes this check, then go through all the other loops and make sure the 
-
-        #     if len(all_final_loops) == 1:
-        #         loop = all_final_loops[0]
-        #         preheader = dominator_tree[loop[0]][0]
-        #         b_obj = block_dict[preheader]
-        #         for inv in loop_invariant_code:
-        #             b_obj.instruction_list.insert(0, inv)
-        #             for node in loop:
-        #                 node_obj = block_dict[node]
-        #                 if inv in node_obj.instruction_list:
-        #                     node_obj.instruction_list.remove(inv)
-        #                 block_dict[node] = node_obj
-
-
-
-        
-
         instruction_list = []
         seen_blocks = []
         # remove duplicates
@@ -836,7 +658,7 @@ if __name__ == "__main__":
                 seen_blocks.append(visited_block)
                 instruction_list = instruction_list + copy.deepcopy(block_dict[visited_block].instruction_list)
         func["instrs"] = instruction_list.copy()
-    
-    # print(is_ssa(prog))
-    # print(json.dumps(from_ssa(prog), indent=2, sort_keys=True))
-    json.dump(prog, sys.stdout, indent=2)
+        
+
+
+    # json.dump(prog, sys.stdout, indent=2)
