@@ -448,7 +448,7 @@ def find_loops(b_dict, top_level, be_map):
     """
     Goes through the control flow graph and finds all the loops.
     """
-    print("back edge map: ", be_map)
+    # print("back edge map: ", be_map)
     loops = []
     for header in be_map:
         for latch in be_map[header]:
@@ -514,57 +514,77 @@ def create_dominator_tree(block_dict, start_node, dom):
 
     return parent
 
-def meet(parent_list, block_dict):
+def meet(parent_list, block_dict, initial_args):
     """
     Go through the parent list and meet on the parents to get the new block dictionary
     """
     met_vars = {}
     for parent in parent_list:
         block_obj = block_dict[parent.name]
-        out_var_mem_dict = block_obj.out_var_mem
-        print(f"parent: {parent.name} | dict: {out_var_mem_dict}")
-        for var in out_var_mem_dict:      # out var mem is a {}
+        if parent.name == "b1":
+            out_dict = initial_args
+        else:
+            out_dict = block_obj.out_var_mem
+        print(f"parent: {parent.name} | dict: {out_dict}")
+        for var in out_dict:      # out var mem is a {}
             if var not in met_vars:
                 met_vars[var] = set()
             
-            met_vars[var] = met_vars[var].union(out_var_mem_dict[var])
+            met_vars[var] = met_vars[var].union(out_dict[var])
 
-    print("type met vars: ", type(met_vars))
+    # print("type met vars: ", type(met_vars))
     return met_vars
 if __name__ == "__main__":
     # the program comes in from stdin
     prog = json.load(sys.stdin)
 
     for func in prog["functions"]:
+        # print(func)
         instruction_list = func["instrs"]
+        # print(instruction_list)
 
         block_order = []
         # state
-        allocated_var_map = {}
 
         entry_block_instr = {"label": "b1"}
         instruction_list.insert(0, entry_block_instr)
 
         block_dict = create_blocks(instruction_list, start_name=func["name"]).copy()
+        # print("block_dict: ", block_dict)
+        # for block in block_dict:
+        #     print("name: ", block_dict[block].name)
+        #     print("parents: ", block_dict[block].parent_list)
+        #     print("children: ", block_dict[block].children_list)
         curr_mem_loc = 0
         for instr in instruction_list:
             # helps tells us the ordering of the blocks at the end
             if "label" in instr:
                 block_order.append(instr["label"])
-            
-            # helps us find out all of the allocations
-            # if "dest" in instr and "op" in instr and instr["op"] == "alloc":
-            #     if instr["dest"] not in allocated_var_map:
-            #         allocated_var_map[instr["dest"]] = set()
-            #     allocated_var_map[instr["dest"]].add(curr_mem_loc)
-            #     curr_mem_loc += 1
-
-        print("initial var_type_map: ", allocated_var_map)
 
         block_order = [func["name"]] + block_order
-        print("block order: ", block_order)
 
         curr_label = func["name"]
+
+        # in order to initialize the function arguments, we need to add it to the first block
+        block_obj = block_dict[func["name"]]
+
+        # print("func name: ", func["name"])
+        # print("block_obj: ", block_obj)
+
+        out_var_mem_dict = {}
+        if "args" in func:
+            print("args: ", func["args"])
+            for arg in func["args"]:
+                out_var_mem_dict[arg["name"]] = set([i for i in range(10)])
+            
+            print("out_var_mem_dict: ", out_var_mem_dict)
+            block_obj.out_var_mem = copy.deepcopy(out_var_mem_dict)
+            print("block_obj.out_var_mem: ", block_obj.out_var_mem)
+            # list(block_obj.children_list)[0].in_var_mem = copy.deepcopy(out_var_mem_dict)
+            block_dict[func["name"]].out_var_mem = copy.deepcopy(out_var_mem_dict)
+            print("block_dict: ", block_dict)
+            print(block_dict[func["name"]].out_var_mem)
+
 
         fixed_point = False
         first_pass = True
@@ -575,15 +595,16 @@ if __name__ == "__main__":
             curr_mem_loc = 0
             for block in block_dict:
                 block_obj = block_dict[block]
-
+                print("block: ", block)
+                print("block out: ", block_obj.out_var_mem)
                 # do a meet on the parents, which is going to be this block's starting "state"
-                print("looking at block: ", block)
-                # print([block_obj.parent_list[i].out_var_mem for i in range(len(block_obj.parent_list))])
-                starting_state = meet(block_obj.parent_list, block_dict)
-                print("starting state after meet: ", starting_state)
+                starting_state = meet(block_obj.parent_list, block_dict, initial_args=out_var_mem_dict)
+                print("starting state: ", starting_state)
+                # print("starting state after meet: ", starting_state)
                 block_obj.in_var_mem = starting_state.copy()
                 original_out = copy.deepcopy(block_obj.out_var_mem)
                 for instr in block_obj.instruction_list:
+                    print("instruction: ", instr)
                     if "dest" in instr:
                         if instr["dest"] not in starting_state:
                             starting_state[instr["dest"]] = set()
@@ -610,7 +631,7 @@ if __name__ == "__main__":
                         if "op" in instr and instr["op"] == "id":
                             dest = instr["dest"]        # it should have a destination because it's an id operator
                             instr_arg = instr["args"][0]
-                            print("instr arg: ", instr_arg)
+                            # print("instr arg: ", instr_arg)
                             if instr_arg in starting_state:                     # based on the dataflow analysis, it's possible that the argument has been been merged from the parents
                                 existing_mem_loc = starting_state[instr_arg]     # we want all of the memory locations of the previous argument in the instruction
                                 for var in existing_mem_loc:
@@ -642,7 +663,7 @@ if __name__ == "__main__":
                 block_obj.out_var_mem = copy.deepcopy(starting_state)
                 
                 block_dict[block] = block_obj
-                print("out var mem: ", block_dict[block].out_var_mem)
+                # print("out var mem: ", block_dict[block].out_var_mem)
 
                 ## Check if the new out is the same as the old out
 
@@ -661,16 +682,57 @@ if __name__ == "__main__":
                 # print("starting state after: ", starting_state)
             first_pass = False        
         
-        print("final allocated map: ", allocated_var_map)
+        # print("final allocated map: ", allocated_var_map)
 
+        final_mem_alloc_map = {}
         for block in block_dict:
-            print("block name: ", block)
-            print("mem locations: ", block_dict[block].out_var_mem)
+            # print("block name: ", block)
+            # print("mem locations: ", block_dict[block].out_var_mem)
+            for var in block_dict[block].out_var_mem:
+                if var not in final_mem_alloc_map:
+                    final_mem_alloc_map[var] = set()
+                final_mem_alloc_map[var] = final_mem_alloc_map[var].union(block_dict[block].out_var_mem[var])
+
+        # print("final mem allocation: ", final_mem_alloc_map)
         ### the analysis will give the memory pointed locations for all the variables
         ### from here we go back through and we can change the occurences
 
+        # go through all of the blocks and make one centralized version
+        # print("starting load to store optimization")
+        store_map = {}
+        final_instruction_list = []
+        for block in block_dict:
+            instruction_list = block_dict[block].instruction_list
+            final_instr_list = []
+            for instr in instruction_list:
+                # print("instr: ", instr)
+                if "op" in instr and instr["op"] == "store":
+                    arg_to_store = instr["args"][0]
+                    val_to_store = instr["args"][1]
 
-        
+                    store_map[arg_to_store] = val_to_store
+                    # print("store_map: ", store_map)
+
+                if "op" in instr and instr["op"] == "load":
+                    arg_to_load = instr["args"][0]
+                    type_to_load = instr["type"]
+                    dest_to_load = instr["dest"]
+                    # print("instr: ", instr)
+                    # print("store map: ", store_map)
+                    # print("arg to load: ", arg_to_load)
+                    # print("final mem alloc map: ", final_mem_alloc_map)
+                    if arg_to_load in final_mem_alloc_map and len(final_mem_alloc_map[arg_to_load]) == 1 and arg_to_load in store_map:
+                        # print("should be changing the instruction")
+                        new_instr = {'dest': dest_to_load, 'op': 'id', 'type': type_to_load, 'args': store_map[arg_to_load]}
+                        final_instr_list.append(new_instr)
+                        continue
+                
+                final_instr_list.append(instr)
+            
+            block_dict[block].instruction_list = copy.deepcopy(final_instr_list) 
+
+
+
 
                     
         instruction_list = []
